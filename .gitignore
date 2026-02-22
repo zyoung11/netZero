@@ -36,3 +36,5 @@ nebula-cert
 lighthouse/lighthouse
 lighthouse/Lighthouse.md
 node/node.md
+node/dist
+node/nssm
