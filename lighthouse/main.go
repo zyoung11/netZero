@@ -58,14 +58,20 @@ func isSudo() bool {
 }
 
 func initLighthouse() error {
-	// 1. 创建数据库
-	db, err := bolt.OpenDB("./data.db")
+	// 1. 创建config文件夹
+	err := os.MkdirAll("./config", 0755)
+	if err != nil {
+		return fmt.Errorf("创建config文件夹失败: %w", err)
+	}
+
+	// 2. 创建数据库
+	db, err := bolt.OpenDB("./config/data.db")
 	if err != nil {
 		return fmt.Errorf("打开数据库失败: %w", err)
 	}
 	defer db.Close()
 
-	// 2. 创建users和metaDate桶
+	// 3. 创建users和metaDate桶
 	err = bolt.CreateBucketIfNotExists(db, "users")
 	if err != nil {
 		return fmt.Errorf("创建users桶失败: %w", err)
@@ -75,7 +81,7 @@ func initLighthouse() error {
 		return fmt.Errorf("创建metaDate桶失败: %w", err)
 	}
 
-	// 3. 获取用户输入的公网IP和密码
+	// 4. 获取用户输入的公网IP和密码
 	fmt.Print("请输入公网IP: ")
 	var publicIP string
 	fmt.Scanln(&publicIP)
@@ -92,7 +98,7 @@ func initLighthouse() error {
 		return fmt.Errorf("密码不能为空")
 	}
 
-	// 4. 将公网IP和密码存储到metaDate桶
+	// 5. 将公网IP和密码存储到metaDate桶
 	err = bolt.PutKV(db, "metaDate", "public_ip", publicIP)
 	if err != nil {
 		return fmt.Errorf("存储公网IP失败: %w", err)
@@ -102,17 +108,11 @@ func initLighthouse() error {
 		return fmt.Errorf("存储密码失败: %w", err)
 	}
 
-	// 5. 合成config.yml
+	// 6. 合成config.yml
 	configContent := generateLighthouseConfig(publicIP)
 	err = os.WriteFile("./config.yml", []byte(configContent), 0644)
 	if err != nil {
 		return fmt.Errorf("写入config.yml失败: %w", err)
-	}
-
-	// 6. 创建config文件夹
-	err = os.MkdirAll("./config", 0755)
-	if err != nil {
-		return fmt.Errorf("创建config文件夹失败: %w", err)
 	}
 
 	// 7. 生成CA证书
@@ -286,7 +286,7 @@ func handleInit(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid permissions"})
 	}
 
-	db, err := bolt.OpenDB("./data.db")
+	db, err := bolt.OpenDB("./config/data.db")
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "database error"})
 	}
@@ -348,7 +348,7 @@ func handleInit(c *fiber.Ctx) error {
 }
 
 func getPublicIP() (string, error) {
-	db, err := bolt.OpenDB("./data.db")
+	db, err := bolt.OpenDB("./config/data.db")
 	if err != nil {
 		return "", err
 	}
@@ -362,7 +362,7 @@ func getPublicIP() (string, error) {
 }
 
 func getPassword() (string, error) {
-	db, err := bolt.OpenDB("./data.db")
+	db, err := bolt.OpenDB("./config/data.db")
 	if err != nil {
 		return "", err
 	}
