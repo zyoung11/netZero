@@ -153,7 +153,7 @@ func initLighthouse() error {
 
 func generateLighthouseConfig(publicIP string) string {
 	return fmt.Sprintf(`pki:
-  ca: ./ca.crt
+  ca: ./config/ca.crt
   cert: ./config/lighthouse.crt
   key: ./config/lighthouse.key
 
