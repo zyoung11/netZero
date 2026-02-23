@@ -51,7 +51,6 @@ func main() {
 			fmt.Printf("初始化失败: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Println("初始化完成")
 	} else if err != nil {
 		fmt.Printf("检查config文件夹失败: %v\n", err)
 		os.Exit(1)

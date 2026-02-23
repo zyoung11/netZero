@@ -17,6 +17,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"golang.org/x/term"
 )
 
 func main() {
@@ -176,19 +178,15 @@ func handleRun() {
 
 	switch state {
 	case "disconnected":
-		fmt.Println("未连接状态，开始管理员初始化流程...")
 		err := adminInit()
 		if err != nil {
 			fmt.Printf("初始化失败: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Println("初始化完成，启动nebula...")
 		startNebula()
 	case "connected_admin", "connected_user":
-		fmt.Println("已连接状态，启动nebula...")
 		startNebula()
 	default:
-		fmt.Printf("未知状态: %s\n", state)
 		os.Exit(1)
 	}
 }
@@ -544,7 +542,10 @@ func getUserInput() (string, string, string, error) {
 	}
 
 	fmt.Print("请输入密码: ")
-	fmt.Scanln(&password)
+	password, err := readPassword()
+	if err != nil {
+		return "", "", "", fmt.Errorf("读取密码失败: %w", err)
+	}
 	password = strings.TrimSpace(password)
 	if password == "" {
 		return "", "", "", fmt.Errorf("密码不能为空")
@@ -711,4 +712,38 @@ func startNebula() {
 		fmt.Printf("nebula进程异常退出: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func readPassword() (string, error) {
+	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
+	if err != nil {
+		return "", err
+	}
+	defer term.Restore(int(os.Stdin.Fd()), oldState)
+
+	var password []byte
+	buf := make([]byte, 1)
+	for {
+		n, err := os.Stdin.Read(buf)
+		if err != nil || n == 0 {
+			break
+		}
+		ch := buf[0]
+		if ch == '\r' || ch == '\n' {
+			break
+		} else if ch == 127 || ch == 8 {
+			if len(password) > 0 {
+				password = password[:len(password)-1]
+				fmt.Print("\b \b")
+			}
+		} else {
+			password = append(password, ch)
+			fmt.Print("*")
+		}
+	}
+	// 回车，恢复终端状态，然后换行
+	fmt.Print("\r")
+	term.Restore(int(os.Stdin.Fd()), oldState)
+	fmt.Print("\n")
+	return string(password), nil
 }
