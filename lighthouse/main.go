@@ -195,7 +195,7 @@ cipher: aes
 
 tun:
   disabled: false
-  dev: nebula1
+  dev: netzero
   drop_local_broadcast: false
   drop_multicast: false
   tx_queue: 500
