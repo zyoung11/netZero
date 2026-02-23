@@ -4,6 +4,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -257,9 +258,11 @@ func handleInit(c *fiber.Ctx) error {
 		Info string `json:"info"`
 	}
 	type CertData struct {
-		CA  string `json:"ca"`
-		CRT string `json:"crt"`
-		KEY string `json:"key"`
+		CA     string `json:"ca"`
+		CRT    string `json:"crt"`
+		KEY    string `json:"key"`
+		Config string `json:"config"`
+		IP     string `json:"ip"`
 	}
 
 	var req Request
@@ -292,6 +295,12 @@ func handleInit(c *fiber.Ctx) error {
 	}
 	defer db.Close()
 
+	// 检查机器名是否已存在
+	_, err = bolt.GetKV(db, "users", client.Name)
+	if err == nil {
+		return c.Status(409).JSON(fiber.Map{"error": "Name already exists."})
+	}
+
 	userCount, err := bolt.CountBucketKV(db, "users")
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "failed to count users"})
@@ -302,8 +311,6 @@ func handleInit(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "failed to get public IP"})
 	}
-	// 生成客户端配置（不需要保存）
-	_ = generateClientConfig(publicIP, client.Name, client.Permissions)
 
 	cmd := exec.Command("./nebula-cert", "sign", "-name", client.Name, "-ip", ip+"/24", "-groups", client.Permissions, "-duration", client.Duration)
 	cmd.Stdout = os.Stdout
@@ -326,13 +333,22 @@ func handleInit(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": "failed to read client key"})
 	}
 
+	// 存储用户信息到users桶
+	err = bolt.PutKV(db, "users", client.Name, ip)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "failed to store user info"})
+	}
+
 	os.Remove(fmt.Sprintf("./%s.crt", client.Name))
 	os.Remove(fmt.Sprintf("./%s.key", client.Name))
 
+	configContent := generateClientConfig(publicIP, client.Name, client.Permissions)
 	certData := CertData{
-		CA:  string(caContent),
-		CRT: string(crtContent),
-		KEY: string(keyContent),
+		CA:     string(caContent),
+		CRT:    string(crtContent),
+		KEY:    string(keyContent),
+		Config: configContent,
+		IP:     ip,
 	}
 	certJSON, err := json.Marshal(certData)
 	if err != nil {
@@ -438,7 +454,7 @@ func generateFirewallRules(permissions string) string {
 func generateClientConfig(publicIP, clientName, permissions string) string {
 	firewallRules := generateFirewallRules(permissions)
 	return fmt.Sprintf(`pki:
-  ca: ./ca.crt
+  ca: ./config/ca.crt
   cert: ./config/%s.crt
   key: ./config/%s.key
 
@@ -475,9 +491,16 @@ logging:
 %s`, clientName, clientName, publicIP, firewallRules)
 }
 
+// 派生AES密钥
+func deriveKey(password string) []byte {
+	hash := sha256.Sum256([]byte(password))
+	return hash[:]
+}
+
 // 加密解密函数
 func encrypt(key, plaintext string) (string, error) {
-	block, err := aes.NewCipher([]byte(key))
+	derivedKey := deriveKey(key)
+	block, err := aes.NewCipher(derivedKey)
 	if err != nil {
 		return "", err
 	}
@@ -495,12 +518,13 @@ func encrypt(key, plaintext string) (string, error) {
 }
 
 func decrypt(key, ciphertext string) (string, error) {
+	derivedKey := deriveKey(key)
 	data, err := base64.StdEncoding.DecodeString(ciphertext)
 	if err != nil {
 		return "", err
 	}
 
-	block, err := aes.NewCipher([]byte(key))
+	block, err := aes.NewCipher(derivedKey)
 	if err != nil {
 		return "", err
 	}
