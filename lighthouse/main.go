@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -13,9 +14,12 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/signal"
 	"os/user"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"golang.org/x/term"
@@ -233,6 +237,14 @@ firewall:
 }
 
 func runLighthouse() error {
+	// 创建context用于取消操作
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// 设置信号处理
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+
 	// 启动web服务
 	go startWebService()
 
@@ -240,17 +252,67 @@ func runLighthouse() error {
 	cmd := exec.Command("./nebula", "-config", "./config/config.yml")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+
+	// 设置进程组，确保子进程能一起被终止
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,
+	}
+
 	err := cmd.Start()
 	if err != nil {
 		return fmt.Errorf("启动nebula失败: %w", err)
 	}
 
-	// 等待进程退出
-	err = cmd.Wait()
-	if err != nil {
-		return fmt.Errorf("nebula进程异常退出: %w", err)
+	// 创建goroutine等待进程退出
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	// 等待信号或进程退出
+	select {
+	case sig := <-sigChan:
+		fmt.Printf("收到信号: %v，正在终止进程...\n", sig)
+
+		// 发送SIGTERM给进程组
+		if cmd.Process != nil {
+			// 发送SIGTERM给整个进程组
+			syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+
+			// 等待进程退出
+			select {
+			case <-time.After(5 * time.Second):
+				// 如果5秒后还没退出，发送SIGKILL
+				fmt.Println("进程未在5秒内退出，强制终止...")
+				syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			case err := <-done:
+				if err != nil {
+					fmt.Printf("进程已退出，错误: %v\n", err)
+				} else {
+					fmt.Println("进程已正常退出")
+				}
+				return nil
+			}
+		}
+
+		// 等待最终退出
+		select {
+		case err := <-done:
+			if err != nil {
+				fmt.Printf("进程最终退出，错误: %v\n", err)
+			}
+		case <-time.After(2 * time.Second):
+			fmt.Println("进程强制终止完成")
+		}
+
+		return fmt.Errorf("程序被信号终止: %v", sig)
+
+	case err := <-done:
+		if err != nil {
+			return fmt.Errorf("nebula进程异常退出: %w", err)
+		}
+		return nil
 	}
-	return nil
 }
 
 func startWebService() {
