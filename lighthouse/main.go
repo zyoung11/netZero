@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
+	"golang.org/x/term"
 )
 
 func main() {
@@ -109,8 +110,10 @@ func initLighthouse() error {
 	}
 
 	fmt.Print("请输入密码: ")
-	var password string
-	fmt.Scanln(&password)
+	password, err := readPassword()
+	if err != nil {
+		return fmt.Errorf("读取密码失败: %w", err)
+	}
 	password = strings.TrimSpace(password)
 	if password == "" {
 		return fmt.Errorf("密码不能为空")
@@ -548,4 +551,35 @@ func decrypt(key, ciphertext string) (string, error) {
 	stream.XORKeyStream(data, data)
 
 	return string(data), nil
+}
+
+func readPassword() (string, error) {
+	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
+	if err != nil {
+		return "", err
+	}
+	defer term.Restore(int(os.Stdin.Fd()), oldState)
+
+	var password []byte
+	buf := make([]byte, 1)
+	for {
+		n, err := os.Stdin.Read(buf)
+		if err != nil || n == 0 {
+			break
+		}
+		ch := buf[0]
+		if ch == '\r' || ch == '\n' {
+			break
+		} else if ch == 127 || ch == 8 {
+			if len(password) > 0 {
+				password = password[:len(password)-1]
+				fmt.Print("\b \b")
+			}
+		} else {
+			password = append(password, ch)
+			fmt.Print("*")
+		}
+	}
+	fmt.Println()
+	return string(password), nil
 }
