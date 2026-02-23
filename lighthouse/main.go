@@ -29,8 +29,23 @@ func main() {
 
 	// 检查config文件夹是否存在
 	if _, err := os.Stat("./config"); os.IsNotExist(err) {
+		// 先创建config文件夹
+		err := os.MkdirAll("./config", 0755)
+		if err != nil {
+			fmt.Printf("创建config文件夹失败: %v\n", err)
+			os.Exit(1)
+		}
+
+		// 打开数据库连接（会创建data.db文件）
+		bolt.DB, err = bolt.OpenDB("./config/data.db")
+		if err != nil {
+			fmt.Printf("打开数据库失败: %v\n", err)
+			os.Exit(1)
+		}
+		defer bolt.DB.Close()
+
 		// 初始化流程
-		err := initLighthouse()
+		err = initLighthouse()
 		if err != nil {
 			fmt.Printf("初始化失败: %v\n", err)
 			os.Exit(1)
@@ -39,6 +54,15 @@ func main() {
 	} else if err != nil {
 		fmt.Printf("检查config文件夹失败: %v\n", err)
 		os.Exit(1)
+	} else {
+		// config文件夹已存在，打开数据库连接
+		var err error
+		bolt.DB, err = bolt.OpenDB("./config/data.db")
+		if err != nil {
+			fmt.Printf("打开数据库失败: %v\n", err)
+			os.Exit(1)
+		}
+		defer bolt.DB.Close()
 	}
 
 	// 运行流程
@@ -65,24 +89,17 @@ func initLighthouse() error {
 		return fmt.Errorf("创建config文件夹失败: %w", err)
 	}
 
-	// 2. 创建数据库
-	db, err := bolt.OpenDB("./config/data.db")
-	if err != nil {
-		return fmt.Errorf("打开数据库失败: %w", err)
-	}
-	defer db.Close()
-
-	// 3. 创建users和metaDate桶
-	err = bolt.CreateBucketIfNotExists(db, "users")
+	// 2. 创建users和metaDate桶
+	err = bolt.CreateBucketIfNotExists(bolt.DB, "users")
 	if err != nil {
 		return fmt.Errorf("创建users桶失败: %w", err)
 	}
-	err = bolt.CreateBucketIfNotExists(db, "metaDate")
+	err = bolt.CreateBucketIfNotExists(bolt.DB, "metaDate")
 	if err != nil {
 		return fmt.Errorf("创建metaDate桶失败: %w", err)
 	}
 
-	// 4. 获取用户输入的公网IP和密码
+	// 3. 获取用户输入的公网IP和密码
 	fmt.Print("请输入公网IP: ")
 	var publicIP string
 	fmt.Scanln(&publicIP)
@@ -99,25 +116,25 @@ func initLighthouse() error {
 		return fmt.Errorf("密码不能为空")
 	}
 
-	// 5. 将公网IP和密码存储到metaDate桶
-	err = bolt.PutKV(db, "metaDate", "public_ip", publicIP)
+	// 4. 将公网IP和密码存储到metaDate桶
+	err = bolt.PutKV(bolt.DB, "metaDate", "public_ip", publicIP)
 	if err != nil {
 		return fmt.Errorf("存储公网IP失败: %w", err)
 	}
-	err = bolt.PutKV(db, "metaDate", "password", password)
+	err = bolt.PutKV(bolt.DB, "metaDate", "password", password)
 	if err != nil {
 		return fmt.Errorf("存储密码失败: %w", err)
 	}
 
-	// 6. 合成config.yml
+	// 5. 合成config.yml
 	configContent := generateLighthouseConfig(publicIP)
 	err = os.WriteFile("./config.yml", []byte(configContent), 0644)
 	if err != nil {
 		return fmt.Errorf("写入config.yml失败: %w", err)
 	}
 
-	// 7. 生成CA证书
-	cmd := exec.Command("./nebula-cert", "ca", "-name", "netZero")
+	// 6. 生成CA证书
+	cmd := exec.Command("./nebula-cert", "ca", "-name", "netZero", "-duration", "876000h")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	err = cmd.Run()
@@ -125,7 +142,7 @@ func initLighthouse() error {
 		return fmt.Errorf("生成CA证书失败: %w", err)
 	}
 
-	// 8. 生成lighthouse证书
+	// 7. 生成lighthouse证书
 	cmd = exec.Command("./nebula-cert", "sign", "-name", "lighthouse", "-ip", "192.168.100.1/24", "-groups", "admin")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -134,7 +151,7 @@ func initLighthouse() error {
 		return fmt.Errorf("生成lighthouse证书失败: %w", err)
 	}
 
-	// 9. 移动文件到config目录
+	// 8. 移动文件到config目录
 	files := []string{"ca.crt", "ca.key", "lighthouse.crt", "lighthouse.key", "config.yml"}
 	for _, f := range files {
 		err = os.Rename(f, filepath.Join("./config", f))
@@ -143,8 +160,8 @@ func initLighthouse() error {
 		}
 	}
 
-	// 10. 存储lighthouse信息到users桶
-	err = bolt.PutKV(db, "users", "lighthouse", "192.168.100.1")
+	// 9. 存储lighthouse信息到users桶
+	err = bolt.PutKV(bolt.DB, "users", "lighthouse", "192.168.100.1")
 	if err != nil {
 		return fmt.Errorf("存储lighthouse信息失败: %w", err)
 	}
@@ -289,19 +306,13 @@ func handleInit(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid permissions"})
 	}
 
-	db, err := bolt.OpenDB("./config/data.db")
-	if err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "database error"})
-	}
-	defer db.Close()
-
 	// 检查机器名是否已存在
-	_, err = bolt.GetKV(db, "users", client.Name)
+	_, err = bolt.GetKV(bolt.DB, "users", client.Name)
 	if err == nil {
 		return c.Status(409).JSON(fiber.Map{"error": "Name already exists."})
 	}
 
-	userCount, err := bolt.CountBucketKV(db, "users")
+	userCount, err := bolt.CountBucketKV(bolt.DB, "users")
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "failed to count users"})
 	}
@@ -312,7 +323,14 @@ func handleInit(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": "failed to get public IP"})
 	}
 
-	cmd := exec.Command("./nebula-cert", "sign", "-name", client.Name, "-ip", ip+"/24", "-groups", client.Permissions, "-duration", client.Duration)
+	cmd := exec.Command("./nebula-cert",
+		"sign",
+		"-name", client.Name,
+		"-ip", ip+"/24",
+		"-groups", client.Permissions,
+		"-duration", client.Duration,
+		"-ca-crt", "./config/ca.crt",
+		"-ca-key", "./config/ca.key")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	err = cmd.Run()
@@ -334,7 +352,7 @@ func handleInit(c *fiber.Ctx) error {
 	}
 
 	// 存储用户信息到users桶
-	err = bolt.PutKV(db, "users", client.Name, ip)
+	err = bolt.PutKV(bolt.DB, "users", client.Name, ip)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "failed to store user info"})
 	}
@@ -364,13 +382,7 @@ func handleInit(c *fiber.Ctx) error {
 }
 
 func getPublicIP() (string, error) {
-	db, err := bolt.OpenDB("./config/data.db")
-	if err != nil {
-		return "", err
-	}
-	defer db.Close()
-
-	ip, err := bolt.GetKV(db, "metaDate", "public_ip")
+	ip, err := bolt.GetKV(bolt.DB, "metaDate", "public_ip")
 	if err != nil {
 		return "", err
 	}
@@ -378,13 +390,7 @@ func getPublicIP() (string, error) {
 }
 
 func getPassword() (string, error) {
-	db, err := bolt.OpenDB("./config/data.db")
-	if err != nil {
-		return "", err
-	}
-	defer db.Close()
-
-	password, err := bolt.GetKV(db, "metaDate", "password")
+	password, err := bolt.GetKV(bolt.DB, "metaDate", "password")
 	if err != nil {
 		return "", err
 	}

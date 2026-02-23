@@ -38,3 +38,5 @@ lighthouse/Lighthouse.md
 node/node.md
 node/dist
 node/nssm
+node/netZero
+node/config
