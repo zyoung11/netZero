@@ -323,14 +323,17 @@ func handleInit(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": "failed to get public IP"})
 	}
 
-	cmd := exec.Command("./nebula-cert",
+	args := []string{
 		"sign",
 		"-name", client.Name,
-		"-ip", ip+"/24",
+		"-ip", ip + "/24",
 		"-groups", client.Permissions,
-		"-duration", client.Duration,
-		"-ca-crt", "./config/ca.crt",
-		"-ca-key", "./config/ca.key")
+	}
+	if client.Permissions != "admin" {
+		args = append(args, "-duration", client.Duration)
+	}
+	args = append(args, "-ca-crt", "./config/ca.crt", "-ca-key", "./config/ca.key")
+	cmd := exec.Command("./nebula-cert", args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	err = cmd.Run()
