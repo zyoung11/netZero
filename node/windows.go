@@ -3,30 +3,46 @@
 
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+)
 
 func installService() {
+	// 获取当前程序路径
+	exePath, err := os.Executable()
+	if err != nil {
+		exePath = "netZero.exe"
+	}
+
+	absPath, err := filepath.Abs(exePath)
+	if err != nil {
+		absPath = exePath
+	}
+
+	dirPath := filepath.Dir(absPath)
+
 	fmt.Println("=== Windows 服务安装教程 ===")
+	fmt.Println()
+	fmt.Println("当前程序路径:", absPath)
+	fmt.Println("当前目录:", dirPath)
 	fmt.Println()
 	fmt.Println("1. 使用 winget 下载 NSSM (Non-Sucking Service Manager):")
 	fmt.Println("   winget install nssm")
 	fmt.Println()
 	fmt.Println("2. 使用 NSSM 创建服务:")
-	fmt.Println("   nssm install netZero \"%CD%\\netZero.exe\"")
+	fmt.Printf("   nssm install netZero \"%s\" \"-config ./config/config.yml\"\n", absPath)
 	fmt.Println()
-	fmt.Println("3. 设置服务参数:")
-	fmt.Println("   在 NSSM 界面中，设置参数为: -config ./config/config.yml")
-	fmt.Println()
-	fmt.Println("4. 启动服务:")
+	fmt.Println("3. 启动服务:")
 	fmt.Println("   nssm start netZero")
 	fmt.Println()
-	fmt.Println("5. 其他常用命令:")
+	fmt.Println("4. 其他常用命令:")
 	fmt.Println("   - 停止服务: nssm stop netZero")
 	fmt.Println("   - 重启服务: nssm restart netZero")
 	fmt.Println("   - 删除服务: nssm remove netZero confirm")
+	fmt.Println("   - 查看服务状态: nssm status netZero")
 	fmt.Println()
-	fmt.Println("注意: 请确保在 netZero.exe 所在目录运行上述命令。")
-	fmt.Println("如果遇到权限问题，请以管理员身份运行命令提示符。")
 }
 
 func startNebula() {
