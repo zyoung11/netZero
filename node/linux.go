@@ -1,12 +1,17 @@
+//go:build linux
+// +build linux
+
 package main
 
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
-func installLinuxService() {
+func installService() {
 	// 获取当前程序路径
 	exePath, err := os.Executable()
 	if err != nil {
@@ -62,4 +67,33 @@ WantedBy=multi-user.target
 	fmt.Println("")
 	fmt.Println("  # 查看日志")
 	fmt.Println("  sudo journalctl -u netzero.service -f")
+}
+
+func startNebula() {
+	configPath := "./config/config.yml"
+
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		fmt.Printf("配置文件不存在: %s\n", configPath)
+		os.Exit(1)
+	}
+
+	var cmd *exec.Cmd
+
+	cmd = exec.Command("sudo", "./nebula", "-config", configPath)
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+
+	fmt.Printf("执行命令: %s\n", strings.Join(cmd.Args, " "))
+
+	if err := cmd.Start(); err != nil {
+		fmt.Printf("启动nebula失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := cmd.Wait(); err != nil {
+		fmt.Printf("nebula进程异常退出: %v\n", err)
+		os.Exit(1)
+	}
 }

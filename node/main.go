@@ -13,8 +13,7 @@ import (
 	"net/http"
 	"netZero/bolt"
 	"os"
-	"os/exec"
-	"runtime"
+	// "runtime"
 	"strings"
 	"time"
 
@@ -268,25 +267,7 @@ func handleService() {
 		os.Exit(1)
 	}
 
-	fmt.Println("安装系统服务...")
-	installServiceFunc()
-}
-
-// 服务安装函数变量，由平台特定文件设置
-var installServiceFunc func()
-
-func init() {
-	// 根据平台设置服务安装函数
-	switch runtime.GOOS {
-	case "linux":
-		installServiceFunc = installLinuxService
-	case "windows":
-		installServiceFunc = installWindowsService
-	default:
-		installServiceFunc = func() {
-			fmt.Printf("当前平台 %s 不支持服务安装\n", runtime.GOOS)
-		}
-	}
+	installService()
 }
 
 func handleInvite() {
@@ -678,44 +659,6 @@ func saveCertFiles(data *CertResponse) error {
 	}
 
 	return nil
-}
-
-// 启动nebula
-func startNebula() {
-	configPath := "./config/config.yml"
-
-	// 检查配置文件是否存在
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		fmt.Printf("配置文件不存在: %s\n", configPath)
-		os.Exit(1)
-	}
-
-	var cmd *exec.Cmd
-
-	if runtime.GOOS == "windows" {
-		// Windows: 使用nebula.exe
-		cmd = exec.Command("./nebula.exe", "-config", configPath)
-	} else {
-		// Linux/Unix: 使用sudo运行nebula
-		cmd = exec.Command("sudo", "./nebula", "-config", configPath)
-	}
-
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
-
-	fmt.Printf("执行命令: %s\n", strings.Join(cmd.Args, " "))
-
-	if err := cmd.Start(); err != nil {
-		fmt.Printf("启动nebula失败: %v\n", err)
-		os.Exit(1)
-	}
-
-	// 等待进程退出
-	if err := cmd.Wait(); err != nil {
-		fmt.Printf("nebula进程异常退出: %v\n", err)
-		os.Exit(1)
-	}
 }
 
 func readPassword() (string, error) {
