@@ -349,12 +349,10 @@ func getInviteInput() (string, string, string, error) {
 		fmt.Println("权限必须是 'guest' 或 'untrusted'")
 	}
 
-	fmt.Print("请输入授权时长 (例如: 8760h): ")
+	fmt.Print("请输入授权时长 (例如: 8760h，直接回车表示无期限): ")
 	fmt.Scanln(&duration)
 	duration = strings.TrimSpace(duration)
-	if duration == "" {
-		return "", "", "", fmt.Errorf("授权时长不能为空")
-	}
+	// 允许为空，表示无期限
 
 	return name, permissions, duration, nil
 }

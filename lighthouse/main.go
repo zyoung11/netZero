@@ -394,8 +394,8 @@ func handleInit(c *fiber.Ctx) error {
 		"-ip", ip + "/24",
 		"-groups", client.Permissions,
 	}
-	if client.Permissions != "admin" {
-		args = append(args, "-duration", client.Duration)
+	if client.Permissions != "admin" && strings.TrimSpace(client.Duration) != "" {
+		args = append(args, "-duration", strings.TrimSpace(client.Duration))
 	}
 	args = append(args, "-ca-crt", "./config/ca.crt", "-ca-key", "./config/ca.key")
 	cmd := exec.Command("./nebula-cert", args...)
