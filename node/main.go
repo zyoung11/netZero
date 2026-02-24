@@ -224,16 +224,14 @@ func handleJoin() {
 		os.Exit(1)
 	}
 
-	// 4. 提取名字（从证书文件名推断）
-	// 假设证书文件名为 <name>.crt，这里简单处理
-	name := "client"
-	if certData.CRT != "" {
-		// 这里简化处理，实际应从配置中提取名字
-		// 或者要求用户输入名字？文档未明确
+	// 4. 使用API返回的名字
+	if certData.Name == "" {
+		fmt.Println("错误：API返回的名字为空")
+		os.Exit(1)
 	}
 
 	// 5. 保存证书和配置文件
-	if err := saveCertFiles(name, certData); err != nil {
+	if err := saveCertFiles(certData); err != nil {
 		fmt.Printf("保存证书文件失败: %v\n", err)
 		os.Exit(1)
 	}
@@ -517,7 +515,7 @@ func adminInit() error {
 	}
 
 	// 7. 保存证书和配置文件
-	if err := saveCertFiles(name, responseData); err != nil {
+	if err := saveCertFiles(responseData); err != nil {
 		return fmt.Errorf("保存证书文件失败: %w", err)
 	}
 
@@ -641,23 +639,24 @@ type CertResponse struct {
 	KEY    string `json:"key"`
 	Config string `json:"config"`
 	IP     string `json:"ip"`
+	Name   string `json:"name"`
 }
 
 // 保存证书文件
-func saveCertFiles(name string, data *CertResponse) error {
+func saveCertFiles(data *CertResponse) error {
 	// 保存ca.crt
 	if err := os.WriteFile("./config/ca.crt", []byte(data.CA), 0644); err != nil {
 		return err
 	}
 
 	// 保存客户端证书
-	certPath := fmt.Sprintf("./config/%s.crt", name)
+	certPath := fmt.Sprintf("./config/%s.crt", data.Name)
 	if err := os.WriteFile(certPath, []byte(data.CRT), 0644); err != nil {
 		return err
 	}
 
 	// 保存客户端密钥
-	keyPath := fmt.Sprintf("./config/%s.key", name)
+	keyPath := fmt.Sprintf("./config/%s.key", data.Name)
 	if err := os.WriteFile(keyPath, []byte(data.KEY), 0644); err != nil {
 		return err
 	}

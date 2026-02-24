@@ -344,6 +344,7 @@ func handleInit(c *fiber.Ctx) error {
 		KEY    string `json:"key"`
 		Config string `json:"config"`
 		IP     string `json:"ip"`
+		Name   string `json:"name"`
 	}
 
 	var req Request
@@ -434,6 +435,7 @@ func handleInit(c *fiber.Ctx) error {
 		KEY:    string(keyContent),
 		Config: configContent,
 		IP:     ip,
+		Name:   client.Name,
 	}
 	certJSON, err := json.Marshal(certData)
 	if err != nil {
