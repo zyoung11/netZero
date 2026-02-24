@@ -276,9 +276,16 @@ func handleService() {
 var installServiceFunc func()
 
 func init() {
-	// 默认实现，各平台文件会覆盖
-	installServiceFunc = func() {
-		fmt.Printf("当前平台 %s 不支持服务安装\n", runtime.GOOS)
+	// 根据平台设置服务安装函数
+	switch runtime.GOOS {
+	case "linux":
+		installServiceFunc = installLinuxService
+	case "windows":
+		installServiceFunc = installWindowsService
+	default:
+		installServiceFunc = func() {
+			fmt.Printf("当前平台 %s 不支持服务安装\n", runtime.GOOS)
+		}
 	}
 }
 

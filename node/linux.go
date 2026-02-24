@@ -1,5 +1,3 @@
-//go:build linux
-
 package main
 
 import (
@@ -7,10 +5,6 @@ import (
 	"os"
 	"path/filepath"
 )
-
-func init() {
-	installServiceFunc = installLinuxService
-}
 
 func installLinuxService() {
 	// 获取当前程序路径
