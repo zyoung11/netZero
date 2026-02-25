@@ -36,7 +36,7 @@ netZero是一个基于[Nebula](https://github.com/slackhq/nebula)构建的分布
 
 2. 下载预编译版本
    
-   - Linux: `[lighthouse-linux.zip](https://github.com/zyoung11/netZero/releases/latest/download/lighthouse-linux.zip)`
+   - Linux: [lighthouse-linux.zip](https://github.com/zyoung11/netZero/releases/latest/download/lighthouse-linux.zip)
 
 3. **安装步骤**
    
@@ -71,8 +71,8 @@ netZero是一个基于[Nebula](https://github.com/slackhq/nebula)构建的分布
 
 1. **下载预编译版本**
    
-   - Linux: `[netZero-linux.zip](https://github.com/zyoung11/netZero/releases/latest/download/netZero-linux.zip)`
-   - Windows: `[netZero-win.zip](https://github.com/zyoung11/netZero/releases/latest/download/netZero-win.zip)`
+   - Linux: [netZero-linux.zip](https://github.com/zyoung11/netZero/releases/latest/download/netZero-linux.zip)
+   - Windows: [netZero-win.zip](https://github.com/zyoung11/netZero/releases/latest/download/netZero-win.zip)
 
 2. **首次使用**
    
