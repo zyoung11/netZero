@@ -46,6 +46,12 @@ func main() {
 		case "list":
 			// 显示用户列表
 			handleList()
+		case "service":
+			// 安装系统服务
+			handleService()
+		case "redo":
+			// 重置所有配置
+			handleRedo()
 		case "help", "-h", "--help":
 			// 显示帮助信息
 			printHelp()
@@ -64,10 +70,12 @@ func showInteractiveMenu() {
 	config := result.RadioConfig{
 		Question: "请选择要执行的操作:",
 		Options: []string{
-			"run  - 启动lighthouse服务",
-			"list - 显示用户列表",
-			"help - 显示帮助信息",
-			"exit - 退出程序",
+			"run     - 启动lighthouse服务",
+			"list    - 显示用户列表",
+			"service - 安装系统服务",
+			"redo    - 重置所有配置",
+			"help    - 显示帮助信息",
+			"exit    - 退出程序",
 		},
 	}
 
@@ -79,6 +87,10 @@ func showInteractiveMenu() {
 		runLighthouseDirectly()
 	case strings.Contains(choice, "list"):
 		handleList()
+	case strings.Contains(choice, "service"):
+		handleService()
+	case strings.Contains(choice, "redo"):
+		handleRedo()
 	case strings.Contains(choice, "help"):
 		printHelp()
 	case strings.Contains(choice, "exit"):
@@ -99,6 +111,8 @@ lighthouse - netZero服务器端
 命令:
   run     启动lighthouse服务
   list    显示用户列表
+  service 安装系统服务（开机自启）
+  redo    重置所有配置
   help    显示此帮助信息
 
 直接运行程序（不带参数）将显示交互式菜单。
@@ -847,4 +861,90 @@ func handleList() {
 	} else {
 		fmt.Println("操作已取消")
 	}
+}
+
+func handleService() {
+	// 检查是否已初始化（config文件夹是否存在）
+	if _, err := os.Stat("./config"); os.IsNotExist(err) {
+		fmt.Println("未初始化，请先运行 'lighthouse run'")
+		os.Exit(1)
+	}
+
+	installService()
+}
+
+func handleRedo() {
+	config := result.RadioConfig{
+		Question: "警告: 此操作将删除所有配置文件和证书！确认要重置所有配置吗？",
+		Options:  []string{"是", "否"},
+	}
+
+	choice := result.RadioList(config)
+
+	if choice == "是" {
+		// 删除config文件夹
+		if err := os.RemoveAll("./config"); err != nil {
+			fmt.Printf("删除config文件夹失败: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Println("配置已重置，可以重新运行 'lighthouse run'")
+	} else {
+		fmt.Println("操作已取消")
+	}
+}
+
+func installService() {
+	exePath, err := os.Executable()
+	if err != nil {
+		fmt.Printf("获取程序路径失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	exeDir := filepath.Dir(exePath)
+	exeName := filepath.Base(exePath)
+
+	serviceContent := fmt.Sprintf(`[Unit]
+Description=lighthouse netZero Service
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=%s
+ExecStart=%s run
+Restart=always
+RestartSec=5
+StartLimitInterval=60s
+StartLimitBurst=3
+
+[Install]
+WantedBy=multi-user.target
+`, exeDir, filepath.Join(exeDir, exeName))
+
+	servicePath := "./lighthouse.service"
+	if err := os.WriteFile(servicePath, []byte(serviceContent), 0644); err != nil {
+		fmt.Printf("保存服务文件失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("服务文件已生成: lighthouse.service")
+	fmt.Println("\n请检查之前是否注册过服务:")
+	fmt.Println("  sudo systemctl status lighthouse.service")
+	fmt.Println("\n安装指令:")
+	fmt.Println("  # 复制服务文件到systemd目录")
+	fmt.Println("  sudo cp lighthouse.service /etc/systemd/system/")
+	fmt.Println("")
+	fmt.Println("  # 重新加载 systemd 配置")
+	fmt.Println("  sudo systemctl daemon-reload")
+	fmt.Println("")
+	fmt.Println("  # 设置开机自启")
+	fmt.Println("  sudo systemctl enable --now lighthouse.service")
+	fmt.Println("")
+	fmt.Println("  # 查看状态")
+	fmt.Println("  sudo systemctl status lighthouse.service")
+	fmt.Println("")
+	fmt.Println("  # 查看日志")
+	fmt.Println("  sudo journalctl -u lighthouse.service -f")
 }
