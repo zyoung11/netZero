@@ -59,7 +59,8 @@ func main() {
 }
 
 func printHelp() {
-	helpText := `netZero - 分布式VPN客户端
+	helpText := `
+netZero - 分布式VPN客户端
 
 用法: netZero [命令]
 
@@ -71,12 +72,6 @@ func printHelp() {
   redo    重置所有配置
   ip      显示分配的IP地址
   help    显示此帮助信息
-
-示例:
-  netZero run      # 初始化并启动连接
-  netZero join     # 通过邀请码加入
-  netZero service  # 安装为系统服务
-  netZero invite   # 生成邀请码给其他用户
 
 `
 	fmt.Print(helpText)
