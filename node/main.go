@@ -13,6 +13,8 @@ import (
 	"net/http"
 	"netZero/bolt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -84,12 +86,12 @@ func printHelp() {
 
 // 状态检查函数
 func checkConnectionState() string {
-	// 检查config文件夹是否存在
-	if _, err := os.Stat("./config"); os.IsNotExist(err) {
+	// 检查是否能连接到192.168.100.1
+	if !canConnectToGateway() {
 		return "disconnected"
 	}
 
-	// 检查是否有.crt和.key文件
+	// 检查证书文件是否存在
 	hasCertFiles := false
 	if entries, err := os.ReadDir("./config"); err == nil {
 		for _, entry := range entries {
@@ -105,12 +107,64 @@ func checkConnectionState() string {
 		return "disconnected"
 	}
 
-	// 检查data.db是否存在（判断是否为管理员）
-	if _, err := os.Stat("./config/data.db"); os.IsNotExist(err) {
-		return "connected_user"
+	// 检查证书中的groups是否包含admin
+	if isAdminFromCert() {
+		return "connected_admin"
 	}
 
-	return "connected_admin"
+	return "connected_user"
+}
+
+// 检查是否能连接到网关
+func canConnectToGateway() bool {
+	conn, err := net.DialTimeout("tcp", "192.168.100.1:9090", 3*time.Second)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
+}
+
+// 从证书中检查是否为管理员
+func isAdminFromCert() bool {
+	// 查找所有证书文件
+	certFiles, err := filepath.Glob("./config/*.crt")
+	if err != nil || len(certFiles) == 0 {
+		return false
+	}
+
+	// 遍历所有证书文件，跳过CA证书
+	for _, certFile := range certFiles {
+		if strings.Contains(certFile, "ca.crt") {
+			continue // 跳过CA证书
+		}
+
+		// 使用nebula-cert工具解析证书
+		cmd := exec.Command("./nebula-cert", "print", "-path", certFile)
+		output, err := cmd.Output()
+		if err != nil {
+			continue // 跳过解析失败的证书
+		}
+
+		// 解析JSON输出
+		var certInfo map[string]interface{}
+		if err := json.Unmarshal(output, &certInfo); err != nil {
+			continue // 跳过JSON解析失败的证书
+		}
+
+		// 检查details.groups是否包含admin
+		if details, ok := certInfo["details"].(map[string]interface{}); ok {
+			if groups, ok := details["groups"].([]interface{}); ok {
+				for _, group := range groups {
+					if groupStr, ok := group.(string); ok && groupStr == "admin" {
+						return true
+					}
+				}
+			}
+		}
+	}
+
+	return false
 }
 
 func isAdmin() bool {
