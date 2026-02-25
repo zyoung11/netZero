@@ -11,6 +11,9 @@ import (
 	"fmt"
 	"io"
 	"lighthouse/bolt"
+	"lighthouse/result"
+	"lighthouse/table"
+	"lighthouse/texts"
 	"net"
 	"os"
 	"os/exec"
@@ -21,6 +24,7 @@ import (
 	"syscall"
 	"time"
 
+	"charm.land/bubbles/v2/textinput"
 	"github.com/gofiber/fiber/v2"
 	"golang.org/x/term"
 )
@@ -32,6 +36,77 @@ func main() {
 		os.Exit(1)
 	}
 
+	// 处理命令行参数
+	if len(os.Args) > 1 {
+		command := os.Args[1]
+		switch command {
+		case "run":
+			// 直接运行程序
+			runLighthouseDirectly()
+		case "list":
+			// 显示用户列表
+			handleList()
+		case "help", "-h", "--help":
+			// 显示帮助信息
+			printHelp()
+		default:
+			fmt.Printf("未知命令: %s\n\n", command)
+			printHelp()
+			os.Exit(1)
+		}
+	} else {
+		// 如果没有参数，显示交互式菜单
+		showInteractiveMenu()
+	}
+}
+
+func showInteractiveMenu() {
+	config := result.RadioConfig{
+		Question: "请选择要执行的操作:",
+		Options: []string{
+			"run  - 启动lighthouse服务",
+			"list - 显示用户列表",
+			"help - 显示帮助信息",
+			"exit - 退出程序",
+		},
+	}
+
+	choice := result.RadioList(config)
+
+	// 解析选择
+	switch {
+	case strings.Contains(choice, "run"):
+		runLighthouseDirectly()
+	case strings.Contains(choice, "list"):
+		handleList()
+	case strings.Contains(choice, "help"):
+		printHelp()
+	case strings.Contains(choice, "exit"):
+		fmt.Println("程序退出")
+		os.Exit(0)
+	default:
+		fmt.Println("无效选择")
+		os.Exit(1)
+	}
+}
+
+func printHelp() {
+	helpText := `
+lighthouse - netZero服务器端
+
+用法: lighthouse [命令]
+
+命令:
+  run     启动lighthouse服务
+  list    显示用户列表
+  help    显示此帮助信息
+
+直接运行程序（不带参数）将显示交互式菜单。
+`
+	fmt.Print(helpText)
+}
+
+func runLighthouseDirectly() {
 	// 检查config文件夹是否存在
 	if _, err := os.Stat("./config"); os.IsNotExist(err) {
 		// 先创建config文件夹
@@ -129,21 +204,30 @@ func initLighthouse() error {
 		return fmt.Errorf("创建metaDate桶失败: %w", err)
 	}
 
-	// 3. 获取用户输入的公网IP和密码
-	fmt.Print("请输入公网IP: ")
-	var publicIP string
-	fmt.Scanln(&publicIP)
-	publicIP = strings.TrimSpace(publicIP)
+	// 3. 使用texts库获取用户输入的公网IP和密码
+	config := texts.TextInputsConfig{
+		Inputs: []texts.InputConfig{
+			{Placeholder: "请输入公网IP"},
+			{Placeholder: "请输入密码", EchoMode: textinput.EchoPassword},
+		},
+	}
+
+	results := texts.TextInputs(config)
+	if results == nil {
+		return fmt.Errorf("操作已取消")
+	}
+
+	if len(results) != 2 {
+		return fmt.Errorf("输入数据不完整")
+	}
+
+	publicIP := strings.TrimSpace(results[0])
+	password := strings.TrimSpace(results[1])
+
 	if net.ParseIP(publicIP) == nil {
 		return fmt.Errorf("无效的IP地址")
 	}
 
-	fmt.Print("请输入密码: ")
-	password, err := readPassword()
-	if err != nil {
-		return fmt.Errorf("读取密码失败: %w", err)
-	}
-	password = strings.TrimSpace(password)
 	if password == "" {
 		return fmt.Errorf("密码不能为空")
 	}
@@ -688,4 +772,79 @@ func readPassword() (string, error) {
 	}
 	fmt.Println()
 	return string(password), nil
+}
+
+func handleList() {
+	// 打开数据库连接
+	db, err := bolt.OpenDB("./config/data.db")
+	if err != nil {
+		fmt.Printf("打开数据库失败: %v\n", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	// 获取所有用户数据
+	users, err := bolt.ScanAll(db, "users")
+	if err != nil {
+		fmt.Printf("获取用户数据失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	if len(users) == 0 {
+		fmt.Println("没有用户数据")
+		return
+	}
+
+	// 准备表格数据
+	headers := []string{"用户名", "IP地址"}
+	rows := [][]string{}
+
+	for username, ip := range users {
+		rows = append(rows, []string{username, ip})
+	}
+
+	// 显示表格
+	config := table.TableConfig{
+		Headers: headers,
+		Rows:    rows,
+	}
+
+	selectedRow := table.ShowTable(config)
+	if selectedRow != nil && len(selectedRow) >= 2 {
+		username := selectedRow[0]
+		ip := selectedRow[1]
+
+		// 询问是否删除
+		deleteConfig := result.RadioConfig{
+			Question: fmt.Sprintf("是否要删除用户 '%s' (IP: %s)?", username, ip),
+			Options:  []string{"是", "否"},
+		}
+
+		choice := result.RadioList(deleteConfig)
+		if choice == "是" {
+			// 删除用户
+			err := bolt.DeleteKV(db, "users", username)
+			if err != nil {
+				fmt.Printf("删除用户失败: %v\n", err)
+				os.Exit(1)
+			}
+
+			// 删除证书文件
+			certFile := fmt.Sprintf("./config/%s.crt", username)
+			keyFile := fmt.Sprintf("./config/%s.key", username)
+
+			if err := os.Remove(certFile); err != nil && !os.IsNotExist(err) {
+				fmt.Printf("删除证书文件失败: %v\n", err)
+			}
+			if err := os.Remove(keyFile); err != nil && !os.IsNotExist(err) {
+				fmt.Printf("删除密钥文件失败: %v\n", err)
+			}
+
+			fmt.Printf("用户 '%s' 已成功删除\n", username)
+		} else {
+			fmt.Println("操作已取消")
+		}
+	} else {
+		fmt.Println("操作已取消")
+	}
 }
