@@ -12,7 +12,6 @@ import (
 )
 
 func installService() {
-	// 获取当前程序路径
 	exePath, err := os.Executable()
 	if err != nil {
 		fmt.Printf("获取程序路径失败: %v\n", err)
@@ -22,7 +21,6 @@ func installService() {
 	exeDir := filepath.Dir(exePath)
 	exeName := filepath.Base(exePath)
 
-	// 生成服务文件内容
 	serviceContent := fmt.Sprintf(`[Unit]
 Description=netZero VPN Service
 After=network.target network-online.target
@@ -42,7 +40,6 @@ StartLimitBurst=3
 WantedBy=multi-user.target
 `, exeDir, filepath.Join(exeDir, exeName))
 
-	// 保存服务文件
 	servicePath := "./netzero.service"
 	if err := os.WriteFile(servicePath, []byte(serviceContent), 0644); err != nil {
 		fmt.Printf("保存服务文件失败: %v\n", err)

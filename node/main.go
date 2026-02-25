@@ -22,7 +22,6 @@ import (
 )
 
 func main() {
-	// 处理帮助请求
 	if len(os.Args) == 1 ||
 		os.Args[1] == "help" ||
 		os.Args[1] == "-help" ||
@@ -32,7 +31,6 @@ func main() {
 		return
 	}
 
-	// 解析命令行参数
 	if len(os.Args) < 2 {
 		printHelp()
 		os.Exit(1)
@@ -256,8 +254,6 @@ func handleJoin() {
 		os.Exit(1)
 	}
 
-	fmt.Println("加入网络流程...")
-
 	// 1. 创建config文件夹
 	if err := os.MkdirAll("./config", 0755); err != nil {
 		fmt.Printf("创建config文件夹失败: %v\n", err)
@@ -333,8 +329,6 @@ func handleInvite() {
 		fmt.Println("仅管理员可以生成邀请码")
 		os.Exit(1)
 	}
-
-	fmt.Println("生成邀请码...")
 
 	// 获取用户输入
 	name, permissions, duration, err := getInviteInput()
