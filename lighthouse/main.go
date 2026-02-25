@@ -32,60 +32,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 命令行参数处理
-	if len(os.Args) == 1 ||
-		os.Args[1] == "help" ||
-		os.Args[1] == "-help" ||
-		os.Args[1] == "--help" ||
-		os.Args[1] == "-h" {
-		printHelp()
-		return
-	}
-
-	if len(os.Args) < 2 {
-		printHelp()
-		os.Exit(1)
-	}
-
-	command := os.Args[1]
-
-	switch command {
-	case "run":
-		handleRun()
-	case "service":
-		handleService()
-	default:
-		fmt.Printf("未知命令: %s\n\n", command)
-		printHelp()
-		os.Exit(1)
-	}
-}
-
-func isSudo() bool {
-	// 检查是否为root用户
-	currentUser, err := user.Current()
-	if err != nil {
-		return false
-	}
-	return currentUser.Uid == "0"
-}
-
-func printHelp() {
-	helpText := `
-lighthouse - netZero VPN 服务端
-
-用法: lighthouse [命令]
-
-命令:
-  run     启动lighthouse服务（默认行为）
-  service 安装系统服务（开机自启）
-  help    显示此帮助信息
-
-`
-	fmt.Print(helpText)
-}
-
-func handleRun() {
 	// 检查config文件夹是否存在
 	if _, err := os.Stat("./config"); os.IsNotExist(err) {
 		// 先创建config文件夹
@@ -122,21 +68,22 @@ func handleRun() {
 		}
 		defer bolt.DB.Close()
 	}
-}
 
-func handleService() {
-	// 检查是否已初始化
-	if _, err := os.Stat("./config"); os.IsNotExist(err) {
-		fmt.Println("未初始化，正在执行初始化...")
-		handleRun()
-		fmt.Println("初始化完成，开始安装服务...")
-	} else if err != nil {
-		fmt.Printf("检查config文件夹失败: %v\n", err)
+	// 运行流程
+	err := runLighthouse()
+	if err != nil {
+		fmt.Printf("运行失败: %v\n", err)
 		os.Exit(1)
 	}
+}
 
-	// 安装服务
-	installService()
+func isSudo() bool {
+	// 检查是否为root用户
+	currentUser, err := user.Current()
+	if err != nil {
+		return false
+	}
+	return currentUser.Uid == "0"
 }
 
 func initLighthouse() error {
@@ -225,7 +172,6 @@ func initLighthouse() error {
 		return fmt.Errorf("存储lighthouse信息失败: %w", err)
 	}
 
-	fmt.Println("")
 	return nil
 }
 
