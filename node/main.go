@@ -127,7 +127,12 @@ func canConnectToGateway() bool {
 
 // 从证书中检查是否为管理员
 func isAdminFromCert() bool {
-	// 查找所有证书文件
+	return checkCertIsAdmin()
+}
+
+// 检查证书是否为管理员
+func checkCertIsAdmin() bool {
+	// 查找证书文件
 	certFiles, err := filepath.Glob("./config/*.crt")
 	if err != nil || len(certFiles) == 0 {
 		return false
@@ -398,8 +403,13 @@ func getInviteInput() (string, string, string, error) {
 	return name, permissions, duration, nil
 }
 
-// 从数据库获取配置
+// 从数据库获取配置（仅管理员）
 func getConfigFromDB() (string, string, error) {
+	// 检查是否为管理员
+	if !isAdmin() {
+		return "", "", fmt.Errorf("仅管理员可以获取配置")
+	}
+
 	db, err := bolt.OpenDB("./config/data.db")
 	if err != nil {
 		return "", "", fmt.Errorf("打开数据库失败: %w", err)
@@ -460,17 +470,7 @@ func handleIP() {
 		os.Exit(1)
 	}
 
-	var ip string
-	var err error
-
-	if isAdmin() {
-		// 从数据库获取IP
-		ip, err = getIPFromDB()
-	} else {
-		// 从ip.txt文件获取IP
-		ip, err = getIPFromFile()
-	}
-
+	ip, err := getIP()
 	if err != nil {
 		fmt.Printf("获取IP失败: %v\n", err)
 		os.Exit(1)
@@ -479,8 +479,8 @@ func handleIP() {
 	fmt.Printf("您的IP地址: %s\n", ip)
 }
 
-// 从数据库获取IP
-func getIPFromDB() (string, error) {
+// 获取IP地址（统一从数据库获取）
+func getIP() (string, error) {
 	db, err := bolt.OpenDB("./config/data.db")
 	if err != nil {
 		return "", fmt.Errorf("打开数据库失败: %w", err)
@@ -495,22 +495,6 @@ func getIPFromDB() (string, error) {
 	return ip, nil
 }
 
-// 从文件获取IP
-func getIPFromFile() (string, error) {
-	ipPath := "./config/ip.txt"
-	data, err := os.ReadFile(ipPath)
-	if err != nil {
-		return "", fmt.Errorf("读取ip.txt失败: %w", err)
-	}
-
-	ip := strings.TrimSpace(string(data))
-	if ip == "" {
-		return "", fmt.Errorf("ip.txt文件为空")
-	}
-
-	return ip, nil
-}
-
 // 管理员初始化流程
 func adminInit() error {
 	// 1. 创建config文件夹
@@ -518,49 +502,37 @@ func adminInit() error {
 		return fmt.Errorf("创建config文件夹失败: %w", err)
 	}
 
-	// 2. 创建数据库
+	// 2. 获取用户输入
+	publicIP, password, name, err := getUserInput()
+	if err != nil {
+		return err
+	}
+
+	// 3. 加密并发送请求
+	responseData, err := sendInitRequest(publicIP, password, name, "admin", "8760h")
+	if err != nil {
+		return fmt.Errorf("初始化请求失败: %w", err)
+	}
+
+	// 4. 保存证书和配置文件
+	if err := saveCertFiles(responseData); err != nil {
+		return fmt.Errorf("保存证书文件失败: %w", err)
+	}
+
+	// 5. 创建管理员数据库（管理员需要存储publicIP和password）
+	// 注意：saveCertFiles已经创建了数据库，但我们需要更新它来包含publicIP和password
 	db, err := bolt.OpenDB("./config/data.db")
 	if err != nil {
 		return fmt.Errorf("打开数据库失败: %w", err)
 	}
 	defer db.Close()
 
-	// 3. 创建users和metaDate桶
-	if err := bolt.CreateBucketIfNotExists(db, "users"); err != nil {
-		return fmt.Errorf("创建users桶失败: %w", err)
-	}
-	if err := bolt.CreateBucketIfNotExists(db, "metaDate"); err != nil {
-		return fmt.Errorf("创建metaDate桶失败: %w", err)
-	}
-
-	// 4. 获取用户输入
-	publicIP, password, name, err := getUserInput()
-	if err != nil {
-		return err
-	}
-
-	// 5. 存储公网IP和密码到metaDate桶
+	// 存储公网IP和密码
 	if err := bolt.PutKV(db, "metaDate", "public_ip", publicIP); err != nil {
 		return fmt.Errorf("存储公网IP失败: %w", err)
 	}
 	if err := bolt.PutKV(db, "metaDate", "password", password); err != nil {
 		return fmt.Errorf("存储密码失败: %w", err)
-	}
-
-	// 6. 加密并发送请求
-	responseData, err := sendInitRequest(publicIP, password, name, "admin", "8760h")
-	if err != nil {
-		return fmt.Errorf("初始化请求失败: %w", err)
-	}
-
-	// 7. 保存证书和配置文件
-	if err := saveCertFiles(responseData); err != nil {
-		return fmt.Errorf("保存证书文件失败: %w", err)
-	}
-
-	// 8. 存储IP到数据库（metaDate桶）
-	if err := bolt.PutKV(db, "metaDate", "ip", responseData.IP); err != nil {
-		return fmt.Errorf("存储IP失败: %w", err)
 	}
 
 	fmt.Println("管理员初始化完成")
@@ -705,10 +677,11 @@ func saveCertFiles(data *CertResponse) error {
 		return err
 	}
 
-	// 保存IP文件（用于非管理员）
-	ipPath := "./config/ip.txt"
-	if err := os.WriteFile(ipPath, []byte(data.IP), 0644); err != nil {
-		return err
+	// 创建用户数据库
+	// 普通用户没有publicIP和password，所以传空字符串
+	isAdmin := checkCertIsAdmin()
+	if err := createUserDB(data.Name, data.IP, isAdmin, "", ""); err != nil {
+		return fmt.Errorf("创建用户数据库失败: %w", err)
 	}
 
 	return nil
@@ -746,4 +719,56 @@ func readPassword() (string, error) {
 	term.Restore(int(os.Stdin.Fd()), oldState)
 	fmt.Print("\n")
 	return string(password), nil
+}
+
+// 创建用户数据库
+func createUserDB(userName, ip string, isAdmin bool, publicIP, password string) error {
+	db, err := bolt.OpenDB("./config/data.db")
+	if err != nil {
+		return fmt.Errorf("打开数据库失败: %w", err)
+	}
+	defer db.Close()
+
+	// 创建桶
+	if err := bolt.CreateBucketIfNotExists(db, "metaDate"); err != nil {
+		return fmt.Errorf("创建metaDate桶失败: %w", err)
+	}
+	if err := bolt.CreateBucketIfNotExists(db, "users"); err != nil {
+		return fmt.Errorf("创建users桶失败: %w", err)
+	}
+
+	// 存储IP
+	if err := bolt.PutKV(db, "metaDate", "ip", ip); err != nil {
+		return fmt.Errorf("存储IP失败: %w", err)
+	}
+
+	// 存储用户名
+	if err := bolt.PutKV(db, "metaDate", "name", userName); err != nil {
+		return fmt.Errorf("存储用户名失败: %w", err)
+	}
+
+	// 存储管理员标志
+	adminFlag := "false"
+	if isAdmin {
+		adminFlag = "true"
+	}
+	if err := bolt.PutKV(db, "metaDate", "is_admin", adminFlag); err != nil {
+		return fmt.Errorf("存储管理员标志失败: %w", err)
+	}
+
+	// 如果是管理员，存储公网IP和密码
+	if isAdmin {
+		if publicIP != "" {
+			if err := bolt.PutKV(db, "metaDate", "public_ip", publicIP); err != nil {
+				return fmt.Errorf("存储公网IP失败: %w", err)
+			}
+		}
+		if password != "" {
+			if err := bolt.PutKV(db, "metaDate", "password", password); err != nil {
+				return fmt.Errorf("存储密码失败: %w", err)
+			}
+		}
+	}
+
+	return nil
 }
