@@ -59,7 +59,33 @@ func main() {
 		fmt.Printf("检查config文件夹失败: %v\n", err)
 		os.Exit(1)
 	} else {
-		// config文件夹已存在，打开数据库连接
+		// config文件夹已存在，检查所有必需文件
+		requiredFiles := []string{
+			"./config/ca.crt",
+			"./config/lighthouse.crt",
+			"./config/lighthouse.key",
+			"./config/data.db",
+			"./config/ca.key",
+			"./config/config.yml",
+		}
+
+		missingFiles := []string{}
+		for _, file := range requiredFiles {
+			if _, err := os.Stat(file); os.IsNotExist(err) {
+				missingFiles = append(missingFiles, file)
+			}
+		}
+
+		if len(missingFiles) > 0 {
+			fmt.Println("配置不完整，缺少以下文件:")
+			for _, file := range missingFiles {
+				fmt.Printf("  - %s\n", file)
+			}
+			fmt.Println("\n建议删除 ./config/ 目录并重新初始化程序")
+			os.Exit(1)
+		}
+
+		// 所有文件都存在，打开数据库连接
 		var err error
 		bolt.DB, err = bolt.OpenDB("./config/data.db")
 		if err != nil {
@@ -176,7 +202,8 @@ func initLighthouse() error {
 }
 
 func generateLighthouseConfig(publicIP string) string {
-	return fmt.Sprintf(`pki:
+	return fmt.Sprintf(`
+pki:
   ca: ./config/ca.crt
   cert: ./config/lighthouse.crt
   key: ./config/lighthouse.key
@@ -216,24 +243,35 @@ firewall:
     - port: any
       proto: any
       host: any
-      action: accept
 
   inbound:
     - port: 4242
       proto: any
-      host: any
-      action: accept
+      group: any
+
+    - port: 9090
+      proto: any
+      groups:
+        - admin
+        - guest
+        - untrusted
+
+    - port: 80
+      proto: any
+      groups:
+        - admin
+        - guest
+
+    - port: 443
+      proto: any
+      groups:
+        - admin
+        - guest
 
     - port: any
       proto: any
-      host:
-        - group: "admin"
-      action: accept
-
-    - port: any
-      proto: any
-      host: any
-      action: drop`, publicIP)
+      group: admin
+`, publicIP)
 }
 
 func runLighthouse() error {
@@ -469,58 +507,45 @@ func getPassword() (string, error) {
 func generateFirewallRules(permissions string) string {
 	switch permissions {
 	case "admin":
-		return `firewall:
+		return `
+firewall:
   outbound:
     - port: any
       proto: any
-      host: any
-      action: accept
+      group: any
 
   inbound:
     - port: any
       proto: any
-      host: any
-      action: accept`
+      groups:
+        - admin
+        - guest`
 	case "guest":
-		return `firewall:
+		return `
+firewall:
   outbound:
     - port: any
       proto: any
-      host: any
-      action: accept
+      group: any
 
   inbound:
     - port: any
       proto: any
-      host:
-        - group: "admin"
-        - group: "untrusted"
-      action: accept
-
-    - port: any
-      proto: any
-      host: any
-      action: drop`
+      groups:
+        - admin
+        - guest`
 	case "untrusted":
-		return `firewall:
+		return `
+firewall:
   outbound:
     - port: any
       proto: any
-      host: any
-      action: accept
+      group: any
 
   inbound:
     - port: any
       proto: any
-      host:
-        - group: "admin"
-        - group: "guest"
-      action: accept
-
-    - port: any
-      proto: any
-      host: any
-      action: drop`
+      group: any`
 	default:
 		return ""
 	}
@@ -528,7 +553,8 @@ func generateFirewallRules(permissions string) string {
 
 func generateClientConfig(publicIP, clientName, permissions string) string {
 	firewallRules := generateFirewallRules(permissions)
-	return fmt.Sprintf(`pki:
+	return fmt.Sprintf(`
+pki:
   ca: ./config/ca.crt
   cert: ./config/%s.crt
   key: ./config/%s.key
