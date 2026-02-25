@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"netZero/bolt"
 	"netZero/result"
-	"netZero/text"
 	"netZero/texts"
 	"os"
 	"os/exec"
@@ -301,8 +300,10 @@ func handleJoin() {
 		os.Exit(1)
 	}
 
-	// 2. 使用text库获取邀请码
-	invitationCode := text.TextInput("请输入邀请码:")
+	// 2. 获取邀请码
+	var invitationCode string
+	fmt.Print("请输入邀请码: ")
+	fmt.Scanln(&invitationCode)
 	invitationCode = strings.TrimSpace(invitationCode)
 	if invitationCode == "" {
 		fmt.Println("邀请码不能为空")
