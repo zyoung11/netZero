@@ -247,30 +247,43 @@ firewall:
   inbound:
     - port: 4242
       proto: any
-      group: any
+      host: any
 
     - port: 9090
       proto: any
-      groups:
-        - admin
-        - guest
-        - untrusted
+      group: admin
+
+    - port: 9090
+      proto: any
+      group: guest
+
+    - port: 9090
+      proto: any
+      group: untrusted
 
     - port: 80
       proto: any
-      groups:
-        - admin
-        - guest
+      group: admin
+
+    - port: 80
+      proto: any
+      group: guest
 
     - port: 443
       proto: any
-      groups:
-        - admin
-        - guest
+      group: admin
+
+    - port: 443
+      proto: any
+      group: guest
 
     - port: any
       proto: any
       group: admin
+
+    - port: any
+      proto: icmp
+      group: any
 `, publicIP)
 }
 
@@ -512,35 +525,39 @@ firewall:
   outbound:
     - port: any
       proto: any
-      group: any
+      host: any
 
   inbound:
     - port: any
       proto: any
-      groups:
-        - admin
-        - guest`
+      group: admin
+
+    - port: any
+      proto: any
+      group: guest`
 	case "guest":
 		return `
 firewall:
   outbound:
     - port: any
       proto: any
-      group: any
+      host: any
 
   inbound:
     - port: any
       proto: any
-      groups:
-        - admin
-        - guest`
+      group: admin
+
+    - port: any
+      proto: any
+      group: guest`
 	case "untrusted":
 		return `
 firewall:
   outbound:
     - port: any
       proto: any
-      group: any
+      host: any
 
   inbound:
     - port: any
