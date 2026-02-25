@@ -12,48 +12,94 @@ import (
 	"net"
 	"net/http"
 	"netZero/bolt"
+	"netZero/result"
+	"netZero/text"
+	"netZero/texts"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/textinput"
 	"golang.org/x/term"
 )
 
 func main() {
-	if len(os.Args) == 1 ||
-		os.Args[1] == "help" ||
-		os.Args[1] == "-help" ||
-		os.Args[1] == "--help" ||
-		os.Args[1] == "-h" {
-		printHelp()
-		return
+	if len(os.Args) > 1 {
+		// 如果有参数，按原来的方式处理
+		command := os.Args[1]
+
+		if command == "help" ||
+			command == "-help" ||
+			command == "--help" ||
+			command == "-h" {
+			printHelp()
+			return
+		}
+
+		switch command {
+		case "run":
+			handleRun()
+		case "join":
+			handleJoin()
+		case "service":
+			handleService()
+		case "invite":
+			handleInvite()
+		case "redo":
+			handleRedo()
+		case "ip":
+			handleIP()
+		default:
+			fmt.Printf("未知命令: %s\n\n", command)
+			printHelp()
+			os.Exit(1)
+		}
+	} else {
+		// 如果没有参数，显示交互式选择菜单
+		showInteractiveMenu()
+	}
+}
+
+func showInteractiveMenu() {
+	config := result.RadioConfig{
+		Question: "请选择要执行的操作:",
+		Options: []string{
+			"run      - 启动或初始化netZero连接",
+			"join     - 通过邀请码加入网络",
+			"service  - 安装系统服务（开机自启）",
+			"invite   - 生成邀请码（仅管理员）",
+			"redo     - 重置所有配置",
+			"ip       - 显示分配的IP地址",
+			"help     - 显示帮助信息",
+			"exit     - 退出程序",
+		},
 	}
 
-	if len(os.Args) < 2 {
-		printHelp()
-		os.Exit(1)
-	}
+	choice := result.RadioList(config)
 
-	command := os.Args[1]
-
-	switch command {
-	case "run":
+	// 解析选择
+	switch {
+	case strings.Contains(choice, "run"):
 		handleRun()
-	case "join":
+	case strings.Contains(choice, "join"):
 		handleJoin()
-	case "service":
+	case strings.Contains(choice, "service"):
 		handleService()
-	case "invite":
+	case strings.Contains(choice, "invite"):
 		handleInvite()
-	case "redo":
+	case strings.Contains(choice, "redo"):
 		handleRedo()
-	case "ip":
+	case strings.Contains(choice, "ip"):
 		handleIP()
-	default:
-		fmt.Printf("未知命令: %s\n\n", command)
+	case strings.Contains(choice, "help"):
 		printHelp()
+	case strings.Contains(choice, "exit"):
+		fmt.Println("程序退出")
+		os.Exit(0)
+	default:
+		fmt.Println("无效选择")
 		os.Exit(1)
 	}
 }
@@ -255,10 +301,8 @@ func handleJoin() {
 		os.Exit(1)
 	}
 
-	// 2. 获取邀请码
-	var invitationCode string
-	fmt.Print("请输入邀请码: ")
-	fmt.Scanln(&invitationCode)
+	// 2. 使用text库获取邀请码
+	invitationCode := text.TextInput("请输入邀请码:")
 	invitationCode = strings.TrimSpace(invitationCode)
 	if invitationCode == "" {
 		fmt.Println("邀请码不能为空")
@@ -365,29 +409,34 @@ func handleInvite() {
 
 // 获取邀请输入
 func getInviteInput() (string, string, string, error) {
-	var name, permissions, duration string
+	config := texts.TextInputsConfig{
+		Inputs: []texts.InputConfig{
+			{Placeholder: "请输入用户名"},
+			{Placeholder: "请选择权限 (guest/untrusted)"},
+			{Placeholder: "请输入授权时长 (例如: 8760h，直接回车表示无期限)"},
+		},
+	}
 
-	fmt.Print("请输入用户名: ")
-	fmt.Scanln(&name)
-	name = strings.TrimSpace(name)
+	results := texts.TextInputs(config)
+	if results == nil {
+		return "", "", "", fmt.Errorf("操作已取消")
+	}
+
+	if len(results) != 3 {
+		return "", "", "", fmt.Errorf("输入数据不完整")
+	}
+
+	name := strings.TrimSpace(results[0])
+	permissions := strings.TrimSpace(strings.ToLower(results[1]))
+	duration := strings.TrimSpace(results[2])
+
 	if name == "" {
 		return "", "", "", fmt.Errorf("用户名不能为空")
 	}
 
-	for {
-		fmt.Print("请选择权限 (guest/untrusted): ")
-		fmt.Scanln(&permissions)
-		permissions = strings.TrimSpace(strings.ToLower(permissions))
-		if permissions == "guest" || permissions == "untrusted" {
-			break
-		}
-		fmt.Println("权限必须是 'guest' 或 'untrusted'")
+	if permissions != "guest" && permissions != "untrusted" {
+		return "", "", "", fmt.Errorf("权限必须是 'guest' 或 'untrusted'")
 	}
-
-	fmt.Print("请输入授权时长 (例如: 8760h，直接回车表示无期限): ")
-	fmt.Scanln(&duration)
-	duration = strings.TrimSpace(duration)
-	// 允许为空，表示无期限
 
 	return name, permissions, duration, nil
 }
@@ -432,25 +481,24 @@ func generateInvitationCode(certData *CertResponse) (string, error) {
 }
 
 func handleRedo() {
-	fmt.Println("警告: 此操作将删除所有配置文件和证书！")
-	fmt.Print("确认要重置所有配置吗？(输入 'yes' 确认): ")
+	config := result.RadioConfig{
+		Question: "警告: 此操作将删除所有配置文件和证书！确认要重置所有配置吗？",
+		Options:  []string{"是", "否"},
+	}
 
-	var confirmation string
-	fmt.Scanln(&confirmation)
-	confirmation = strings.TrimSpace(strings.ToLower(confirmation))
+	choice := result.RadioList(config)
 
-	if confirmation != "yes" {
+	if choice == "是" {
+		// 删除config文件夹
+		if err := os.RemoveAll("./config"); err != nil {
+			fmt.Printf("删除config文件夹失败: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Println("配置已重置，可以重新运行 'netZero run' 或 'netZero join'")
+	} else {
 		fmt.Println("操作已取消")
-		return
 	}
-
-	// 删除config文件夹
-	if err := os.RemoveAll("./config"); err != nil {
-		fmt.Printf("删除config文件夹失败: %v\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Println("配置已重置，可以重新运行 'netZero run' 或 'netZero join'")
 }
 
 func handleIP() {
@@ -530,28 +578,35 @@ func adminInit() error {
 
 // 获取用户输入
 func getUserInput() (string, string, string, error) {
-	var publicIP, password, name string
+	config := texts.TextInputsConfig{
+		Inputs: []texts.InputConfig{
+			{Placeholder: "请输入公网IP"},
+			{Placeholder: "请输入密码", EchoMode: textinput.EchoPassword},
+			{Placeholder: "请输入名字"},
+		},
+	}
 
-	fmt.Print("请输入公网IP: ")
-	fmt.Scanln(&publicIP)
-	publicIP = strings.TrimSpace(publicIP)
+	results := texts.TextInputs(config)
+	if results == nil {
+		return "", "", "", fmt.Errorf("操作已取消")
+	}
+
+	if len(results) != 3 {
+		return "", "", "", fmt.Errorf("输入数据不完整")
+	}
+
+	publicIP := strings.TrimSpace(results[0])
+	password := strings.TrimSpace(results[1])
+	name := strings.TrimSpace(results[2])
+
 	if net.ParseIP(publicIP) == nil {
 		return "", "", "", fmt.Errorf("无效的IP地址")
 	}
 
-	fmt.Print("请输入密码: ")
-	password, err := readPassword()
-	if err != nil {
-		return "", "", "", fmt.Errorf("读取密码失败: %w", err)
-	}
-	password = strings.TrimSpace(password)
 	if password == "" {
 		return "", "", "", fmt.Errorf("密码不能为空")
 	}
 
-	fmt.Print("请输入名字: ")
-	fmt.Scanln(&name)
-	name = strings.TrimSpace(name)
 	if name == "" {
 		return "", "", "", fmt.Errorf("名字不能为空")
 	}
