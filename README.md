@@ -1,6 +1,6 @@
 # netZero - 分布式VPN系统
 
-netZero是一个基于[Nebula](https://github.com/slackhq/nebula)构建的分布式VPN系统，提供安全的点对点网络连接。系统采用客户端-服务器架构，支持多用户管理和权限控制。
+netZero是一个基于[Nebula](https://github.com/slackhq/nebula)构建的分布式VPN系统，提供安全的点对点网络连接。系统采用客户端-服务器架构，支持三种预设的权限控制。
 
 ## 系统架构
 
