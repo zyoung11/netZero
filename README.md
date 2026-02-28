@@ -335,7 +335,7 @@ firewall:
       group: guest
 ```
 
-#### guest
+#### Guest
 
 ```
 firewall:
@@ -354,7 +354,7 @@ firewall:
       group: guest
 ```
 
-#### untrusted
+#### Untrusted
 
 ```
 firewall:
