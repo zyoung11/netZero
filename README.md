@@ -191,7 +191,7 @@ netZero help
 
 ### Lighthouse
 
-```toml
+```
 pki:
   ca: ./config/ca.crt
   cert: ./config/lighthouse.crt
@@ -277,7 +277,7 @@ firewall:
 
 ### Node（通用）
 
-```toml
+```
 pki:
   ca: ./config/ca.crt
   cert: ./config/%s.crt
@@ -318,7 +318,7 @@ logging:
 
 #### Admin
 
-```toml
+```
 firewall:
   outbound:
     - port: any
@@ -337,7 +337,7 @@ firewall:
 
 #### guest
 
-```toml
+```
 firewall:
   outbound:
     - port: any
@@ -356,7 +356,7 @@ firewall:
 
 #### untrusted
 
-```toml
+```
 firewall:
   outbound:
     - port: any
