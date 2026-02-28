@@ -316,26 +316,7 @@ logging:
 
 ### 权限预设
 
-#### Admin
-
-```
-firewall:
-  outbound:
-    - port: any
-      proto: any
-      host: any
-
-  inbound:
-    - port: any
-      proto: any
-      group: admin
-
-    - port: any
-      proto: any
-      group: guest
-```
-
-#### Guest
+#### Admin / Guest
 
 ```
 firewall:
