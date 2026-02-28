@@ -187,6 +187,188 @@ netZero help
    ./netZero run
    ```
 
+## Nebula配置
+
+### Lighthouse
+
+```toml
+pki:
+  ca: ./config/ca.crt
+  cert: ./config/lighthouse.crt
+  key: ./config/lighthouse.key
+
+static_host_map:
+  "192.168.100.1": ["%s:4242"]
+
+lighthouse:
+  am_lighthouse: true
+  serve_dns: false
+
+listen:
+  host: 0.0.0.0
+  port: 4242
+
+punchy:
+  punch: true
+
+cipher: aes
+
+tun:
+  disabled: false
+  dev: netzero
+  drop_local_broadcast: false
+  drop_multicast: false
+  tx_queue: 500
+  mtu: 1300
+  routes:
+  unsafe_routes:
+
+logging:
+  level: info
+  format: text
+
+firewall:
+  outbound:
+    - port: any
+      proto: any
+      host: any
+
+  inbound:
+    - port: 4242
+      proto: any
+      host: any
+
+    - port: 9090
+      proto: any
+      group: admin
+
+    - port: 9090
+      proto: any
+      group: guest
+
+    - port: 9090
+      proto: any
+      group: untrusted
+
+    - port: 80
+      proto: any
+      group: admin
+
+    - port: 80
+      proto: any
+      group: guest
+
+    - port: 443
+      proto: any
+      group: admin
+
+    - port: 443
+      proto: any
+      group: guest
+
+    - port: any
+      proto: any
+      group: admin
+
+    - port: any
+      proto: icmp
+      group: any
+```
+
+### Node（通用）
+
+```toml
+pki:
+  ca: ./config/ca.crt
+  cert: ./config/%s.crt
+  key: ./config/%s.key
+
+static_host_map:
+  "192.168.100.1": ["%s:4242"]
+
+lighthouse:
+  am_lighthouse: false
+  interval: 60
+  hosts:
+    - "192.168.100.1"
+
+listen:
+  host: 0.0.0.0
+  port: 0
+
+punchy:
+  punch: true
+  respond: true
+
+relay:
+  am_relay: false
+  use_relays: true
+
+cipher: aes
+
+tun:
+  dev: netZero
+  mtu: 1300
+
+logging:
+  level: info
+```
+
+### 权限预设
+
+#### Admin
+
+```toml
+firewall:
+  outbound:
+    - port: any
+      proto: any
+      host: any
+
+  inbound:
+    - port: any
+      proto: any
+      group: admin
+
+    - port: any
+      proto: any
+      group: guest
+```
+
+#### guest
+
+```toml
+firewall:
+  outbound:
+    - port: any
+      proto: any
+      host: any
+
+  inbound:
+    - port: any
+      proto: any
+      group: admin
+
+    - port: any
+      proto: any
+      group: guest
+```
+
+#### untrusted
+
+```toml
+firewall:
+  outbound:
+    - port: any
+      proto: any
+      host: any
+
+  inbound:
+    - port: any
+      proto: any
+      group: any
+```
+
 ## 文件结构
 
 ### 服务器端配置
