@@ -1,6 +1,6 @@
 # netZero - 分布式VPN系统
 
-netZero是一个基于[Nebula](https://github.com/slackhq/nebula)构建的分布式VPN系统，提供安全的点对点网络连接。系统采用客户端-服务器架构，支持三种预设的权限控制。
+netZero是一个基于[Nebula](https://github.com/slackhq/nebula)构建的分布式VPN系统，提供安全的点对点网络连接。系统采用客户端-服务器架构，支持多用户管理和权限控制。
 
 ## 系统架构
 
@@ -36,7 +36,7 @@ netZero是一个基于[Nebula](https://github.com/slackhq/nebula)构建的分布
 
 2. 下载预编译版本
    
-   - Linux: [lighthouse-linux.zip](https://github.com/zyoung11/netZero/releases/latest/download/lighthouse-linux.zip)
+   - Linux: `[lighthouse-linux.zip](https://github.com/zyoung11/netZero/releases/latest/download/lighthouse-linux.zip)`
 
 3. **安装步骤**
    
@@ -71,8 +71,8 @@ netZero是一个基于[Nebula](https://github.com/slackhq/nebula)构建的分布
 
 1. **下载预编译版本**
    
-   - Linux: [netZero-linux.zip](https://github.com/zyoung11/netZero/releases/latest/download/netZero-linux.zip)
-   - Windows: [netZero-win.zip](https://github.com/zyoung11/netZero/releases/latest/download/netZero-win.zip)
+   - Linux: `[netZero-linux.zip](https://github.com/zyoung11/netZero/releases/latest/download/netZero-linux.zip)`
+   - Windows: `[netZero-win.zip](https://github.com/zyoung11/netZero/releases/latest/download/netZero-win.zip)`
 
 2. **首次使用**
    
@@ -175,180 +175,19 @@ netZero help
 ### 普通用户加入流程
 
 1. **获取邀请码文件** (`Invitation.txt`)
+
 2. **运行加入命令**
    
    ```bash
    ./netZero join
    # 粘贴邀请码内容
    ```
+
 3. **启动连接**
    
    ```bash
    ./netZero run
    ```
-
-## Nebula配置
-
-### Lighthouse
-
-```
-pki:
-  ca: ./config/ca.crt
-  cert: ./config/lighthouse.crt
-  key: ./config/lighthouse.key
-
-static_host_map:
-  "192.168.100.1": ["%s:4242"]
-
-lighthouse:
-  am_lighthouse: true
-  serve_dns: false
-
-listen:
-  host: 0.0.0.0
-  port: 4242
-
-punchy:
-  punch: true
-
-cipher: aes
-
-tun:
-  disabled: false
-  dev: netzero
-  drop_local_broadcast: false
-  drop_multicast: false
-  tx_queue: 500
-  mtu: 1300
-  routes:
-  unsafe_routes:
-
-logging:
-  level: info
-  format: text
-
-firewall:
-  outbound:
-    - port: any
-      proto: any
-      host: any
-
-  inbound:
-    - port: 4242
-      proto: any
-      host: any
-
-    - port: 9090
-      proto: any
-      group: admin
-
-    - port: 9090
-      proto: any
-      group: guest
-
-    - port: 9090
-      proto: any
-      group: untrusted
-
-    - port: 80
-      proto: any
-      group: admin
-
-    - port: 80
-      proto: any
-      group: guest
-
-    - port: 443
-      proto: any
-      group: admin
-
-    - port: 443
-      proto: any
-      group: guest
-
-    - port: any
-      proto: any
-      group: admin
-
-    - port: any
-      proto: icmp
-      group: any
-```
-
-### Node（通用）
-
-```
-pki:
-  ca: ./config/ca.crt
-  cert: ./config/%s.crt
-  key: ./config/%s.key
-
-static_host_map:
-  "192.168.100.1": ["%s:4242"]
-
-lighthouse:
-  am_lighthouse: false
-  interval: 60
-  hosts:
-    - "192.168.100.1"
-
-listen:
-  host: 0.0.0.0
-  port: 0
-
-punchy:
-  punch: true
-  respond: true
-
-relay:
-  am_relay: false
-  use_relays: true
-
-cipher: aes
-
-tun:
-  dev: netZero
-  mtu: 1300
-
-logging:
-  level: info
-```
-
-### 权限预设
-
-#### Admin / Guest
-
-```
-firewall:
-  outbound:
-    - port: any
-      proto: any
-      host: any
-
-  inbound:
-    - port: any
-      proto: any
-      group: admin
-
-    - port: any
-      proto: any
-      group: guest
-```
-
-#### Untrusted
-
-```
-firewall:
-  outbound:
-    - port: any
-      proto: any
-      host: any
-
-  inbound:
-    - port: any
-      proto: any
-      group: any
-```
 
 ## 文件结构
 

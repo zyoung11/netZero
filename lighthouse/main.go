@@ -317,6 +317,10 @@ listen:
   host: 0.0.0.0
   port: 4242
 
+relay:
+  am_relay: true
+  relays: []
+
 punchy:
   punch: true
 
@@ -694,6 +698,8 @@ punchy:
 relay:
   am_relay: false
   use_relays: true
+  relays:
+    - "192.168.100.1"
 
 cipher: aes
 
