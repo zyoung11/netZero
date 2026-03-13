@@ -15,6 +15,7 @@ import (
 	"lighthouse/table"
 	"lighthouse/texts"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -41,19 +42,14 @@ func main() {
 		command := os.Args[1]
 		switch command {
 		case "run":
-			// 直接运行程序
 			runLighthouseDirectly()
 		case "list":
-			// 显示用户列表
 			handleList()
 		case "service":
-			// 安装系统服务
 			handleService()
 		case "redo":
-			// 重置所有配置
 			handleRedo()
 		case "help", "-h", "--help":
-			// 显示帮助信息
 			printHelp()
 		default:
 			fmt.Printf("未知命令: %s\n\n", command)
@@ -61,7 +57,6 @@ func main() {
 			os.Exit(1)
 		}
 	} else {
-		// 如果没有参数，显示交互式菜单
 		showInteractiveMenu()
 	}
 }
@@ -81,7 +76,6 @@ func showInteractiveMenu() {
 
 	choice := result.RadioList(config)
 
-	// 解析选择
 	switch {
 	case strings.Contains(choice, "run"):
 		runLighthouseDirectly()
@@ -121,16 +115,13 @@ lighthouse - netZero服务器端
 }
 
 func runLighthouseDirectly() {
-	// 检查config文件夹是否存在
 	if _, err := os.Stat("./config"); os.IsNotExist(err) {
-		// 先创建config文件夹
 		err := os.MkdirAll("./config", 0755)
 		if err != nil {
 			fmt.Printf("创建config文件夹失败: %v\n", err)
 			os.Exit(1)
 		}
 
-		// 打开数据库连接（会创建data.db文件）
 		bolt.DB, err = bolt.OpenDB("./config/data.db")
 		if err != nil {
 			fmt.Printf("打开数据库失败: %v\n", err)
@@ -138,7 +129,6 @@ func runLighthouseDirectly() {
 		}
 		defer bolt.DB.Close()
 
-		// 初始化流程
 		err = initLighthouse()
 		if err != nil {
 			fmt.Printf("初始化失败: %v\n", err)
@@ -148,7 +138,6 @@ func runLighthouseDirectly() {
 		fmt.Printf("检查config文件夹失败: %v\n", err)
 		os.Exit(1)
 	} else {
-		// config文件夹已存在，检查所有必需文件
 		requiredFiles := []string{
 			"./config/ca.crt",
 			"./config/lighthouse.crt",
@@ -174,7 +163,6 @@ func runLighthouseDirectly() {
 			os.Exit(1)
 		}
 
-		// 所有文件都存在，打开数据库连接
 		var err error
 		bolt.DB, err = bolt.OpenDB("./config/data.db")
 		if err != nil {
@@ -184,7 +172,6 @@ func runLighthouseDirectly() {
 		defer bolt.DB.Close()
 	}
 
-	// 运行流程
 	err := runLighthouse()
 	if err != nil {
 		fmt.Printf("运行失败: %v\n", err)
@@ -193,7 +180,6 @@ func runLighthouseDirectly() {
 }
 
 func isSudo() bool {
-	// 检查是否为root用户
 	currentUser, err := user.Current()
 	if err != nil {
 		return false
@@ -472,6 +458,8 @@ func startWebService() {
 	app := fiber.New()
 
 	app.Post("/init", handleInit)
+	app.Get("/cli/list", handleCliList)
+	app.Delete("/cli/user/:username", handleCliDeleteUser)
 
 	err := app.Listen("0.0.0.0:9090")
 	if err != nil {
@@ -794,7 +782,52 @@ func readPassword() (string, error) {
 	return string(password), nil
 }
 
+func handleCliList(c *fiber.Ctx) error {
+	// 获取所有用户数据
+	users, err := bolt.ScanAll(bolt.DB, "users")
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "获取用户数据失败"})
+	}
+
+	return c.JSON(fiber.Map{"users": users})
+}
+
 func handleList() {
+	// 尝试通过HTTP API获取用户列表
+	users, err := getUsersViaAPI()
+	if err != nil {
+		// 如果API调用失败，尝试直接打开数据库
+		fmt.Printf("API调用失败: %v，尝试直接访问数据库...\n", err)
+		handleListDirect()
+		return
+	}
+
+	displayAndManageUsers(users)
+}
+
+func getUsersViaAPI() (map[string]string, error) {
+	// 尝试连接到本地web服务
+	resp, err := http.Get("http://127.0.0.1:9090/cli/list")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("HTTP请求失败: %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Users map[string]string `json:"users"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	return result.Users, nil
+}
+
+func handleListDirect() {
 	// 打开数据库连接
 	db, err := bolt.OpenDB("./config/data.db")
 	if err != nil {
@@ -810,6 +843,10 @@ func handleList() {
 		os.Exit(1)
 	}
 
+	displayAndManageUsers(users)
+}
+
+func displayAndManageUsers(users map[string]string) {
 	if len(users) == 0 {
 		fmt.Println("没有用户数据")
 		return
@@ -842,31 +879,99 @@ func handleList() {
 
 		choice := result.RadioList(deleteConfig)
 		if choice == "是" {
-			// 删除用户
-			err := bolt.DeleteKV(db, "users", username)
-			if err != nil {
-				fmt.Printf("删除用户失败: %v\n", err)
-				os.Exit(1)
+			// 尝试通过API删除
+			if err := deleteUserViaAPI(username); err != nil {
+				fmt.Printf("API删除失败: %v，尝试直接删除...\n", err)
+				deleteUserDirect(username, ip)
+			} else {
+				fmt.Printf("用户 '%s' 已成功删除\n", username)
 			}
-
-			// 删除证书文件
-			certFile := fmt.Sprintf("./config/%s.crt", username)
-			keyFile := fmt.Sprintf("./config/%s.key", username)
-
-			if err := os.Remove(certFile); err != nil && !os.IsNotExist(err) {
-				fmt.Printf("删除证书文件失败: %v\n", err)
-			}
-			if err := os.Remove(keyFile); err != nil && !os.IsNotExist(err) {
-				fmt.Printf("删除密钥文件失败: %v\n", err)
-			}
-
-			fmt.Printf("用户 '%s' 已成功删除\n", username)
 		} else {
 			fmt.Println("操作已取消")
 		}
 	} else {
 		fmt.Println("操作已取消")
 	}
+}
+
+func handleCliDeleteUser(c *fiber.Ctx) error {
+	username := c.Params("username")
+
+	// 检查用户是否存在
+	_, err := bolt.GetKV(bolt.DB, "users", username)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "用户不存在"})
+	}
+
+	// 删除用户
+	err = bolt.DeleteKV(bolt.DB, "users", username)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "删除用户失败"})
+	}
+
+	// 删除证书文件
+	certFile := fmt.Sprintf("./config/%s.crt", username)
+	keyFile := fmt.Sprintf("./config/%s.key", username)
+
+	if err := os.Remove(certFile); err != nil && !os.IsNotExist(err) {
+		fmt.Printf("删除证书文件失败: %v\n", err)
+	}
+	if err := os.Remove(keyFile); err != nil && !os.IsNotExist(err) {
+		fmt.Printf("删除密钥文件失败: %v\n", err)
+	}
+
+	return c.JSON(fiber.Map{"message": fmt.Sprintf("用户 '%s' 已删除", username)})
+}
+
+func deleteUserViaAPI(username string) error {
+	// 创建HTTP DELETE请求
+	req, err := http.NewRequest("DELETE", fmt.Sprintf("http://127.0.0.1:9090/cli/user/%s", username), nil)
+	if err != nil {
+		return err
+	}
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("HTTP请求失败: %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+func deleteUserDirect(username, ip string) {
+	// 打开数据库连接
+	db, err := bolt.OpenDB("./config/data.db")
+	if err != nil {
+		fmt.Printf("打开数据库失败: %v\n", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	// 删除用户
+	err = bolt.DeleteKV(db, "users", username)
+	if err != nil {
+		fmt.Printf("删除用户失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 删除证书文件
+	certFile := fmt.Sprintf("./config/%s.crt", username)
+	keyFile := fmt.Sprintf("./config/%s.key", username)
+
+	if err := os.Remove(certFile); err != nil && !os.IsNotExist(err) {
+		fmt.Printf("删除证书文件失败: %v\n", err)
+	}
+	if err := os.Remove(keyFile); err != nil && !os.IsNotExist(err) {
+		fmt.Printf("删除密钥文件失败: %v\n", err)
+	}
+
+	fmt.Printf("用户 '%s' 已成功删除\n", username)
 }
 
 func handleService() {
