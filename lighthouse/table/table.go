@@ -2,7 +2,6 @@ package table
 
 import (
 	"fmt"
-	"image/color"
 	"os"
 
 	tea "charm.land/bubbletea/v2"
@@ -90,32 +89,10 @@ func (m model) View() tea.View {
 
 func (m *model) rebuildTable() {
 	baseStyle := lipgloss.NewStyle().Padding(0, 1)
-	headerStyle := baseStyle.Foreground(lipgloss.Color("252")).Bold(true)
-	selectedStyle := baseStyle.Foreground(lipgloss.Color("#01BE85")).Background(lipgloss.Color("#00432F"))
-	typeColors := map[string]color.Color{
-		"Bug":      lipgloss.Color("#D7FF87"),
-		"Electric": lipgloss.Color("#FDFF90"),
-		"Fire":     lipgloss.Color("#FF7698"),
-		"Flying":   lipgloss.Color("#FF87D7"),
-		"Grass":    lipgloss.Color("#75FBAB"),
-		"Ground":   lipgloss.Color("#FF875F"),
-		"Normal":   lipgloss.Color("#929292"),
-		"Poison":   lipgloss.Color("#7D5AFC"),
-		"Water":    lipgloss.Color("#00E2C7"),
-		"":         lipgloss.Color("245"),
-	}
-	dimTypeColors := map[string]color.Color{
-		"Bug":      lipgloss.Color("#97AD64"),
-		"Electric": lipgloss.Color("#FCFF5F"),
-		"Fire":     lipgloss.Color("#BA5F75"),
-		"Flying":   lipgloss.Color("#C97AB2"),
-		"Grass":    lipgloss.Color("#59B980"),
-		"Ground":   lipgloss.Color("#C77252"),
-		"Normal":   lipgloss.Color("#727272"),
-		"Poison":   lipgloss.Color("#634BD0"),
-		"Water":    lipgloss.Color("#439F8E"),
-		"":         lipgloss.Color("245"),
-	}
+	headerStyle := baseStyle.Foreground(lipgloss.Color("15")).Bold(true).Background(lipgloss.Color("240"))
+	selectedStyle := baseStyle.Foreground(lipgloss.Color("0")).Background(lipgloss.Color("247")).Bold(true)
+	evenRowStyle := baseStyle.Foreground(lipgloss.Color("7"))
+	oddRowStyle := baseStyle.Foreground(lipgloss.Color("15"))
 
 	rows := m.config.Rows
 	cursor := m.cursor
@@ -123,46 +100,26 @@ func (m *model) rebuildTable() {
 	t := table.New().
 		Headers(m.config.Headers...).
 		Rows(rows...).
-		Border(lipgloss.ThickBorder()).
-		BorderStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("238"))).
+		Border(lipgloss.NormalBorder()).
+		BorderStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("240"))).
 		StyleFunc(func(row, col int) lipgloss.Style {
-			if row == 0 {
+			if row == -1 {
 				return headerStyle
 			}
 
-			rowIndex := row - 1
+			rowIndex := row
 			if rowIndex < 0 || rowIndex >= len(rows) {
 				return baseStyle
 			}
+
 			if rowIndex == cursor {
 				return selectedStyle
 			}
 
-			even := row%2 == 0
-
-			switch col {
-			case 2, 3:
-				c := typeColors
-				if even {
-					c = dimTypeColors
-				}
-
-				if col >= len(rows[rowIndex]) {
-					return baseStyle
-				}
-
-				val := rows[rowIndex][col]
-				color, ok := c[val]
-				if !ok {
-					return baseStyle
-				}
-				return baseStyle.Foreground(color)
+			if row%2 == 0 {
+				return evenRowStyle
 			}
-
-			if even {
-				return baseStyle.Foreground(lipgloss.Color("245"))
-			}
-			return baseStyle.Foreground(lipgloss.Color("252"))
+			return oddRowStyle
 		})
 
 	if m.width > 0 {

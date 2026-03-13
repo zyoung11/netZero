@@ -33,8 +33,8 @@ WorkingDirectory=%s
 ExecStart=%s run
 Restart=always
 RestartSec=5
-StartLimitInterval=60s
-StartLimitBurst=3
+StartLimitInterval=100s
+StartLimitBurst=10
 
 [Install]
 WantedBy=multi-user.target
