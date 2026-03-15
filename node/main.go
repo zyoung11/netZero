@@ -490,7 +490,8 @@ func handleRedo() {
 	choice := result.RadioList(config)
 
 	if choice == "是" {
-		// 删除config文件夹
+		checkAndCleanService()
+
 		if err := os.RemoveAll("./config"); err != nil {
 			fmt.Printf("删除config文件夹失败: %v\n", err)
 			os.Exit(1)

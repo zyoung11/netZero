@@ -993,7 +993,8 @@ func handleRedo() {
 	choice := result.RadioList(config)
 
 	if choice == "是" {
-		// 删除config文件夹
+		checkAndCleanService()
+
 		if err := os.RemoveAll("./config"); err != nil {
 			fmt.Printf("删除config文件夹失败: %v\n", err)
 			os.Exit(1)
@@ -1002,6 +1003,19 @@ func handleRedo() {
 		fmt.Println("配置已重置，可以重新运行 'lighthouse run'")
 	} else {
 		fmt.Println("操作已取消")
+	}
+}
+
+func checkAndCleanService() {
+	cmd := exec.Command("systemctl", "status", "lighthouse.service")
+	if err := cmd.Run(); err == nil {
+		fmt.Println("\n检测到 lighthouse.service 正在运行")
+		fmt.Println("请执行以下命令停止并禁用服务:")
+		fmt.Println("  sudo systemctl disable --now lighthouse.service")
+		fmt.Println("  sudo rm /etc/systemd/system/lighthouse.service")
+		fmt.Println("  sudo systemctl daemon-reload")
+		fmt.Println("\n然后重新运行 'lighthouse redo'")
+		os.Exit(1)
 	}
 }
 

@@ -67,3 +67,15 @@ func startNebula() {
 		os.Exit(1)
 	}
 }
+
+func checkAndCleanService() {
+	cmd := exec.Command("sc", "query", "netZero")
+	if err := cmd.Run(); err == nil {
+		fmt.Println("\n检测到 netZero 服务正在运行")
+		fmt.Println("请执行以下命令停止并删除服务:")
+		fmt.Println("  nssm stop netZero")
+		fmt.Println("  nssm remove netZero confirm")
+		fmt.Println("\n然后重新运行 'netZero redo'")
+		os.Exit(1)
+	}
+}

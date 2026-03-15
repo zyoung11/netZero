@@ -94,3 +94,16 @@ func startNebula() {
 		os.Exit(1)
 	}
 }
+
+func checkAndCleanService() {
+	cmd := exec.Command("systemctl", "status", "netzero.service")
+	if err := cmd.Run(); err == nil {
+		fmt.Println("\n检测到 netzero.service 正在运行")
+		fmt.Println("请执行以下命令停止并禁用服务:")
+		fmt.Println("  sudo systemctl disable --now netzero.service")
+		fmt.Println("  sudo rm /etc/systemd/system/netzero.service")
+		fmt.Println("  sudo systemctl daemon-reload")
+		fmt.Println("\n然后重新运行 'netZero redo'")
+		os.Exit(1)
+	}
+}
