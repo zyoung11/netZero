@@ -12,31 +12,82 @@ import (
 )
 
 func installService() {
-	exePath := "nebula.exe"
+	// 保持向后兼容，调用新的自动安装函数
+	installServiceAuto()
+}
 
+func installServiceAuto() {
+	serviceName := "netZero"
+
+	// 检查nssm是否可用
+	if !checkNSSMAvailable() {
+		fmt.Println("NSSM (Non-Sucking Service Manager) 未安装")
+		fmt.Println("请使用以下命令安装:")
+		fmt.Println("  winget install NSSM.NSSM")
+		fmt.Println("\n安装完成后重新运行 'netZero service'")
+		return
+	}
+
+	// 检查服务是否已存在
+	if checkServiceExistsWindows(serviceName) {
+		fmt.Println("netZero服务已存在")
+		printServiceCommandsWindows(serviceName)
+		return
+	}
+
+	// 自动安装服务
+	exePath := "nebula.exe"
 	absPath, err := filepath.Abs(exePath)
 	if err != nil {
 		absPath = exePath
 	}
 
-	fmt.Println()
-	fmt.Println("=== Windows 服务安装教程 ===")
-	fmt.Println()
-	fmt.Println("1. 使用 winget 下载 NSSM (Non-Sucking Service Manager):")
-	fmt.Println("   winget install NSSM.NSSM")
-	fmt.Println()
-	fmt.Println("2. 使用 NSSM 创建服务:")
-	fmt.Printf("    nssm install netZero \"%s\" \"-config ./config/config.yml\"\n", absPath)
-	fmt.Println()
-	fmt.Println("3. 启动服务:")
-	fmt.Println("   nssm start netZero")
-	fmt.Println()
-	fmt.Println("4. 其他常用命令:")
-	fmt.Println("   - 停止服务: nssm stop netZero")
-	fmt.Println("   - 重启服务: nssm restart netZero")
-	fmt.Println("   - 删除服务: nssm remove netZero confirm")
-	fmt.Println("   - 查看服务: nssm status netZero")
-	fmt.Println()
+	fmt.Println("\n正在自动安装服务...")
+
+	// 使用NSSM创建服务
+	cmd := exec.Command("nssm", "install", serviceName, absPath, "-config", "./config/config.yml")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	fmt.Printf("执行: %s\n", strings.Join(cmd.Args, " "))
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("创建服务失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 启动服务
+	cmd = exec.Command("nssm", "start", serviceName)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	fmt.Printf("执行: %s\n", strings.Join(cmd.Args, " "))
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("启动服务失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("\n服务安装完成！\n")
+	printServiceCommandsWindows(serviceName)
+}
+
+// 检查nssm是否可用
+func checkNSSMAvailable() bool {
+	cmd := exec.Command("nssm", "--version")
+	return cmd.Run() == nil
+}
+
+// 检查Windows服务是否已存在
+func checkServiceExistsWindows(serviceName string) bool {
+	cmd := exec.Command("sc", "query", serviceName)
+	return cmd.Run() == nil
+}
+
+// 打印Windows服务管理命令
+func printServiceCommandsWindows(serviceName string) {
+	fmt.Println("\n服务管理命令:")
+	fmt.Printf("  # 查看状态\n  nssm status %s\n", serviceName)
+	fmt.Printf("  # 启动服务\n  nssm start %s\n", serviceName)
+	fmt.Printf("  # 停止服务\n  nssm stop %s\n", serviceName)
+	fmt.Printf("  # 重启服务\n  nssm restart %s\n", serviceName)
+	fmt.Printf("  # 删除服务 (需要先运行 'netZero redo')\n  nssm remove %s confirm\n", serviceName)
 }
 
 func startNebula() {

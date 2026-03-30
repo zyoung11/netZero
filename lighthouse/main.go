@@ -947,7 +947,21 @@ func handleService() {
 		os.Exit(1)
 	}
 
-	installService()
+	// 检查systemd是否可用
+	if !checkSystemdAvailable() {
+		fmt.Println("错误: systemd不可用，lighthouse服务只能在支持systemd的Linux系统上运行")
+		os.Exit(1)
+	}
+
+	// 检查服务是否已存在
+	if checkServiceExists("lighthouse.service") {
+		fmt.Println("lighthouse服务已存在")
+		printServiceCommands("lighthouse.service")
+		return
+	}
+
+	// 自动安装服务
+	installServiceAuto("lighthouse.service")
 }
 
 func handleRedo() {
@@ -1027,7 +1041,34 @@ func checkAndCleanService() {
 	}
 }
 
-func installService() {
+// 检查systemd是否可用
+func checkSystemdAvailable() bool {
+	cmd := exec.Command("systemctl", "--version")
+	return cmd.Run() == nil
+}
+
+// 检查服务是否已存在
+func checkServiceExists(serviceName string) bool {
+	cmd := exec.Command("systemctl", "status", serviceName)
+	return cmd.Run() == nil
+}
+
+// 打印服务管理命令
+func printServiceCommands(serviceName string) {
+	fmt.Println("\n服务管理命令:")
+	fmt.Printf("  # 查看状态\n  sudo systemctl status %s\n", serviceName)
+	fmt.Printf("  # 启动服务\n  sudo systemctl start %s\n", serviceName)
+	fmt.Printf("  # 停止服务\n  sudo systemctl stop %s\n", serviceName)
+	fmt.Printf("  # 重启服务\n  sudo systemctl restart %s\n", serviceName)
+	fmt.Printf("  # 查看日志\n  sudo journalctl -u %s -f\n", serviceName)
+	fmt.Printf("  # 禁用开机自启\n  sudo systemctl disable %s\n", serviceName)
+	fmt.Printf("  # 删除服务 (需要先运行 'lighthouse redo')\n  sudo systemctl disable --now %s\n", serviceName)
+	fmt.Printf("  sudo rm -f /etc/systemd/system/%s\n", serviceName)
+	fmt.Printf("  sudo systemctl daemon-reload\n")
+}
+
+// 自动安装服务
+func installServiceAuto(serviceName string) {
 	exePath, err := os.Executable()
 	if err != nil {
 		fmt.Printf("获取程序路径失败: %v\n", err)
@@ -1056,30 +1097,50 @@ StartLimitBurst=3
 WantedBy=multi-user.target
 `, exeDir, filepath.Join(exeDir, exeName))
 
-	servicePath := "./lighthouse.service"
+	// 生成服务文件
+	servicePath := "./" + serviceName
 	if err := os.WriteFile(servicePath, []byte(serviceContent), 0644); err != nil {
 		fmt.Printf("保存服务文件失败: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Println("服务文件已生成: lighthouse.service")
-	fmt.Println("\n请检查之前是否注册过服务:")
-	fmt.Println("  sudo systemctl status lighthouse.service")
-	fmt.Println("\n安装指令:")
-	fmt.Println("  # 复制服务文件到systemd目录")
-	fmt.Println("  sudo cp lighthouse.service /etc/systemd/system/")
-	fmt.Println("")
-	fmt.Println("  # 重新加载 systemd 配置")
-	fmt.Println("  sudo systemctl daemon-reload")
-	fmt.Println("")
-	fmt.Println("  # 设置开机自启")
-	fmt.Println("  sudo systemctl enable --now lighthouse.service")
-	fmt.Println("")
-	fmt.Println("  # 查看状态")
-	fmt.Println("  sudo systemctl status lighthouse.service")
-	fmt.Println("")
-	fmt.Println("  # 查看日志")
-	fmt.Println("  sudo journalctl -u lighthouse.service -f")
+	fmt.Printf("服务文件已生成: %s\n", serviceName)
+
+	// 自动执行安装命令
+	fmt.Println("\n正在自动安装服务...")
+
+	// 复制服务文件到systemd目录
+	cmd := exec.Command("sudo", "cp", servicePath, "/etc/systemd/system/")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	fmt.Printf("执行: %s\n", strings.Join(cmd.Args, " "))
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("复制服务文件失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 重新加载systemd配置
+	cmd = exec.Command("sudo", "systemctl", "daemon-reload")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	fmt.Printf("执行: %s\n", strings.Join(cmd.Args, " "))
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("重新加载systemd配置失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 启用并启动服务
+	cmd = exec.Command("sudo", "systemctl", "enable", "--now", serviceName)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	fmt.Printf("执行: %s\n", strings.Join(cmd.Args, " "))
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("启用服务失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("\n服务安装完成！\n")
+	printServiceCommands(serviceName)
 }
 
 func handlePhone() {

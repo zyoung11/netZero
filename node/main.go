@@ -375,7 +375,7 @@ func handleService() {
 		os.Exit(1)
 	}
 
-	installService()
+	installServiceAuto()
 }
 
 func handleInvite() {
