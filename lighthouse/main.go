@@ -9,11 +9,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	bbolt "github.com/boltdb/bolt"
 	"io"
 	"lighthouse/bolt"
 	"lighthouse/result"
 	"lighthouse/table"
+	"lighthouse/text"
+	textarea "lighthouse/textarea"
 	"lighthouse/texts"
 	"net"
 	"os"
@@ -24,6 +25,9 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	termimg "github.com/blacktop/go-termimg"
+	bbolt "github.com/boltdb/bolt"
 
 	"charm.land/bubbles/v2/textinput"
 	"github.com/gofiber/fiber/v2"
@@ -49,6 +53,8 @@ func main() {
 			handleService()
 		case "redo":
 			handleRedo()
+		case "phone":
+			handlePhone()
 		case "help", "-h", "--help":
 			printHelp()
 		default:
@@ -69,6 +75,7 @@ func showInteractiveMenu() {
 			"list    - 显示用户列表",
 			"service - 安装系统服务",
 			"redo    - 重置所有配置",
+			"phone   - 为手机添加证书",
 			"help    - 显示帮助信息",
 			"exit    - 退出程序",
 		},
@@ -85,6 +92,8 @@ func showInteractiveMenu() {
 		handleService()
 	case strings.Contains(choice, "redo"):
 		handleRedo()
+	case strings.Contains(choice, "phone"):
+		handlePhone()
 	case strings.Contains(choice, "help"):
 		printHelp()
 	case strings.Contains(choice, "exit"):
@@ -107,6 +116,7 @@ lighthouse - netZero服务器端
   list    显示用户列表
   service 安装系统服务（开机自启）
   redo    重置所有配置
+  phone   为手机添加证书
   help    显示此帮助信息
 
 直接运行程序（不带参数）将显示交互式菜单。
@@ -998,6 +1008,23 @@ func checkAndCleanService() {
 	} else if !os.IsNotExist(err) {
 		fmt.Printf("删除 ./lighthouse.service 失败: %v\n", err)
 	}
+	phoneFiles := []string{"./phone.pub", "./certificate-QR.png", "./ca-QR.png"}
+	for _, file := range phoneFiles {
+		if err := os.Remove(file); err == nil {
+			fmt.Printf("已删除 %s\n", file)
+		} else if !os.IsNotExist(err) {
+			fmt.Printf("删除 %s 失败: %v\n", file, err)
+		}
+	}
+	certFiles, _ := filepath.Glob("./*.crt")
+	keyFiles, _ := filepath.Glob("./*.key")
+	for _, file := range append(certFiles, keyFiles...) {
+		if err := os.Remove(file); err == nil {
+			fmt.Printf("已删除 %s\n", file)
+		} else if !os.IsNotExist(err) {
+			fmt.Printf("删除 %s 失败: %v\n", file, err)
+		}
+	}
 }
 
 func installService() {
@@ -1053,4 +1080,119 @@ WantedBy=multi-user.target
 	fmt.Println("")
 	fmt.Println("  # 查看日志")
 	fmt.Println("  sudo journalctl -u lighthouse.service -f")
+}
+
+func handlePhone() {
+	if _, err := os.Stat("./config"); os.IsNotExist(err) {
+		fmt.Println("未初始化，请先运行 'lighthouse run'")
+		os.Exit(1)
+	}
+	requiredFiles := []string{
+		"./config/ca.crt",
+		"./config/ca.key",
+		"./config/data.db",
+	}
+	for _, file := range requiredFiles {
+		if _, err := os.Stat(file); os.IsNotExist(err) {
+			fmt.Printf("缺少必要文件: %s\n", file)
+			fmt.Println("请确保已初始化配置")
+			os.Exit(1)
+		}
+	}
+	if os.Getenv("TMUX") != "" {
+		fmt.Println("错误: 不能在 tmux 会话中运行 phone 命令")
+		os.Exit(1)
+	}
+	if !termimg.KittySupported() && !termimg.SixelSupported() && !termimg.ITerm2Supported() {
+		fmt.Println("错误: 终端不支持 Sixel、Kitty 或 iTerm2 图像协议")
+		fmt.Println("请确保终端支持其中至少一种协议")
+		os.Exit(1)
+	}
+	fmt.Println("")
+	fmt.Println("")
+	fmt.Println("请按以下步骤操作：")
+	fmt.Println("1. 打开手机端`Nebula`")
+	fmt.Println("2. 点击左上方`+`")
+	fmt.Println("3. 选择`From scratch`")
+	fmt.Println("4. 填写`Name: netZero`")
+	fmt.Println("5. 点击`Certificate`复制 Public key")
+	fmt.Println()
+	name := text.TextInput("请输入名字：")
+	if name == "" {
+		fmt.Println("名字不能为空")
+		os.Exit(1)
+	}
+	pubKey := textarea.TextAreaInput("请输入公钥：")
+	if pubKey == "" {
+		fmt.Println("公钥不能为空")
+		os.Exit(1)
+	}
+	err := os.WriteFile("./phone.pub", []byte(pubKey), 0644)
+	if err != nil {
+		fmt.Printf("保存公钥文件失败: %v\n", err)
+		os.Exit(1)
+	}
+	var userCount int
+	var publicIP string
+	err = runDBOperation(func(db *bbolt.DB) error {
+		_, err := bolt.GetKV(db, "users", name)
+		if err == nil {
+			return fmt.Errorf("名字已存在")
+		}
+		count, err := bolt.CountBucketKV(db, "users")
+		if err != nil {
+			return err
+		}
+		userCount = count
+		ip, err := bolt.GetKV(db, "metaDate", "public_ip")
+		if err != nil {
+			return err
+		}
+		publicIP = ip
+		return nil
+	})
+	if err != nil {
+		fmt.Printf("数据库操作失败: %v\n", err)
+		os.Exit(1)
+	}
+	ip := fmt.Sprintf("192.168.100.%d", userCount+1)
+	cmd := exec.Command("./nebula-cert", "sign", "-in-pub", "phone.pub", "-ca-crt", "./config/ca.crt", "-ca-key", "./config/ca.key", "-name", name, "-ip", ip+"/24", "--groups", "admin", "-out-qr", "certificate-QR.png")
+	cmd.Stderr = os.Stderr
+	err = cmd.Run()
+	if err != nil {
+		fmt.Printf("生成证书二维码失败: %v\n", err)
+		os.Exit(1)
+	}
+	cmd = exec.Command("./nebula-cert", "print", "-path", "./config/ca.crt", "-out-qr", "ca-QR.png")
+	cmd.Stderr = os.Stderr
+	err = cmd.Run()
+	if err != nil {
+		fmt.Printf("生成CA二维码失败: %v\n", err)
+		os.Exit(1)
+	}
+	err = runDBOperation(func(db *bbolt.DB) error {
+		return bolt.PutKV(db, "users", name, ip)
+	})
+	if err != nil {
+		fmt.Printf("保存用户到数据库失败: %v\n", err)
+	}
+	fmt.Println("")
+	fmt.Println("Certificate QR Code")
+	termimg.PrintFile("certificate-QR.png")
+	fmt.Println("")
+	fmt.Println("")
+	fmt.Println("CA QR Code")
+	termimg.PrintFile("ca-QR.png")
+	fmt.Println("")
+	fmt.Println("")
+	fmt.Println("请点击 Hosts -> Add a new entry 输入：")
+	fmt.Printf("Nebula IP: 192.168.100.1\n")
+	fmt.Printf("Lighthouse: ✓\n")
+	fmt.Printf("public ip: %s\n", publicIP)
+	fmt.Printf("port: 4242\n")
+	os.Remove("./phone.pub")
+	os.Remove("./certificate-QR.png")
+	os.Remove("./ca-QR.png")
+	os.Remove(fmt.Sprintf("./%s.crt", name))
+	os.Remove(fmt.Sprintf("./%s.key", name))
 }
