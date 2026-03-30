@@ -965,13 +965,38 @@ func handleRedo() {
 func checkAndCleanService() {
 	cmd := exec.Command("systemctl", "status", "lighthouse.service")
 	if err := cmd.Run(); err == nil {
-		fmt.Println("\n检测到 lighthouse.service 正在运行")
-		fmt.Println("请执行以下命令停止并禁用服务:")
-		fmt.Println("  sudo systemctl disable --now lighthouse.service")
-		fmt.Println("  sudo rm /etc/systemd/system/lighthouse.service")
-		fmt.Println("  sudo systemctl daemon-reload")
-		fmt.Println("\n然后重新运行 'lighthouse redo'")
-		os.Exit(1)
+		fmt.Println("检测到 lighthouse.service 正在运行，正在自动停止并删除...")
+
+		// 停止并禁用服务
+		cmd = exec.Command("systemctl", "disable", "--now", "lighthouse.service")
+		if err := cmd.Run(); err != nil {
+			fmt.Printf("停止服务失败: %v\n", err)
+		} else {
+			fmt.Println("服务已停止并禁用")
+		}
+
+		// 删除systemd服务文件
+		cmd = exec.Command("rm", "-f", "/etc/systemd/system/lighthouse.service")
+		if err := cmd.Run(); err != nil {
+			fmt.Printf("删除服务文件失败: %v\n", err)
+		} else {
+			fmt.Println("已删除 /etc/systemd/system/lighthouse.service")
+		}
+
+		// 重新加载systemd配置
+		cmd = exec.Command("systemctl", "daemon-reload")
+		if err := cmd.Run(); err != nil {
+			fmt.Printf("重新加载systemd配置失败: %v\n", err)
+		} else {
+			fmt.Println("已重新加载systemd配置")
+		}
+	}
+
+	// 删除当前目录下的服务文件
+	if err := os.Remove("./lighthouse.service"); err == nil {
+		fmt.Println("已删除 ./lighthouse.service")
+	} else if !os.IsNotExist(err) {
+		fmt.Printf("删除 ./lighthouse.service 失败: %v\n", err)
 	}
 }
 
