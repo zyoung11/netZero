@@ -9,13 +9,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	bbolt "github.com/boltdb/bolt"
 	"io"
 	"lighthouse/bolt"
 	"lighthouse/result"
 	"lighthouse/table"
 	"lighthouse/texts"
 	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -114,6 +114,19 @@ lighthouse - netZero服务器端
 	fmt.Print(helpText)
 }
 
+func runDBOperation(operation func(db *bbolt.DB) error) error {
+	db, err := bolt.OpenDB("./config/data.db")
+	if err != nil {
+		return fmt.Errorf("打开数据库失败: %v", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			fmt.Printf("关闭数据库时出错: %v\n", err)
+		}
+	}()
+	return operation(db)
+}
+
 func runLighthouseDirectly() {
 	if _, err := os.Stat("./config"); os.IsNotExist(err) {
 		err := os.MkdirAll("./config", 0755)
@@ -121,13 +134,6 @@ func runLighthouseDirectly() {
 			fmt.Printf("创建config文件夹失败: %v\n", err)
 			os.Exit(1)
 		}
-
-		bolt.DB, err = bolt.OpenDB("./config/data.db")
-		if err != nil {
-			fmt.Printf("打开数据库失败: %v\n", err)
-			os.Exit(1)
-		}
-		defer bolt.DB.Close()
 
 		err = initLighthouse()
 		if err != nil {
@@ -162,14 +168,6 @@ func runLighthouseDirectly() {
 			fmt.Println("\n建议删除 ./config/ 目录并重新初始化程序")
 			os.Exit(1)
 		}
-
-		var err error
-		bolt.DB, err = bolt.OpenDB("./config/data.db")
-		if err != nil {
-			fmt.Printf("打开数据库失败: %v\n", err)
-			os.Exit(1)
-		}
-		defer bolt.DB.Close()
 	}
 
 	err := runLighthouse()
@@ -188,23 +186,11 @@ func isSudo() bool {
 }
 
 func initLighthouse() error {
-	// 1. 创建config文件夹
 	err := os.MkdirAll("./config", 0755)
 	if err != nil {
 		return fmt.Errorf("创建config文件夹失败: %w", err)
 	}
 
-	// 2. 创建users和metaDate桶
-	err = bolt.CreateBucketIfNotExists(bolt.DB, "users")
-	if err != nil {
-		return fmt.Errorf("创建users桶失败: %w", err)
-	}
-	err = bolt.CreateBucketIfNotExists(bolt.DB, "metaDate")
-	if err != nil {
-		return fmt.Errorf("创建metaDate桶失败: %w", err)
-	}
-
-	// 3. 使用texts库获取用户输入的公网IP和密码
 	config := texts.TextInputsConfig{
 		Inputs: []texts.InputConfig{
 			{Placeholder: "请输入公网IP"},
@@ -232,24 +218,12 @@ func initLighthouse() error {
 		return fmt.Errorf("密码不能为空")
 	}
 
-	// 4. 将公网IP和密码存储到metaDate桶
-	err = bolt.PutKV(bolt.DB, "metaDate", "public_ip", publicIP)
-	if err != nil {
-		return fmt.Errorf("存储公网IP失败: %w", err)
-	}
-	err = bolt.PutKV(bolt.DB, "metaDate", "password", password)
-	if err != nil {
-		return fmt.Errorf("存储密码失败: %w", err)
-	}
-
-	// 5. 合成config.yml
 	configContent := generateLighthouseConfig(publicIP)
 	err = os.WriteFile("./config.yml", []byte(configContent), 0644)
 	if err != nil {
 		return fmt.Errorf("写入config.yml失败: %w", err)
 	}
 
-	// 6. 生成CA证书
 	cmd := exec.Command("./nebula-cert", "ca", "-name", "netZero", "-duration", "876000h")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -258,7 +232,6 @@ func initLighthouse() error {
 		return fmt.Errorf("生成CA证书失败: %w", err)
 	}
 
-	// 7. 生成lighthouse证书
 	cmd = exec.Command("./nebula-cert", "sign", "-name", "lighthouse", "-ip", "192.168.100.1/24", "-groups", "admin")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -267,7 +240,6 @@ func initLighthouse() error {
 		return fmt.Errorf("生成lighthouse证书失败: %w", err)
 	}
 
-	// 8. 移动文件到config目录
 	files := []string{"ca.crt", "ca.key", "lighthouse.crt", "lighthouse.key", "config.yml"}
 	for _, f := range files {
 		err = os.Rename(f, filepath.Join("./config", f))
@@ -276,10 +248,31 @@ func initLighthouse() error {
 		}
 	}
 
-	// 9. 存储lighthouse信息到users桶
-	err = bolt.PutKV(bolt.DB, "users", "lighthouse", "192.168.100.1")
+	err = runDBOperation(func(db *bbolt.DB) error {
+		err := bolt.CreateBucketIfNotExists(db, "users")
+		if err != nil {
+			return fmt.Errorf("创建users桶失败: %w", err)
+		}
+		err = bolt.CreateBucketIfNotExists(db, "metaDate")
+		if err != nil {
+			return fmt.Errorf("创建metaDate桶失败: %w", err)
+		}
+		err = bolt.PutKV(db, "metaDate", "public_ip", publicIP)
+		if err != nil {
+			return fmt.Errorf("存储公网IP失败: %w", err)
+		}
+		err = bolt.PutKV(db, "metaDate", "password", password)
+		if err != nil {
+			return fmt.Errorf("存储密码失败: %w", err)
+		}
+		err = bolt.PutKV(db, "users", "lighthouse", "192.168.100.1")
+		if err != nil {
+			return fmt.Errorf("存储lighthouse信息失败: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
-		return fmt.Errorf("存储lighthouse信息失败: %w", err)
+		return err
 	}
 
 	return nil
@@ -512,21 +505,34 @@ func handleInit(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "invalid permissions"})
 	}
 
-	// 检查机器名是否已存在
-	_, err = bolt.GetKV(bolt.DB, "users", client.Name)
-	if err == nil {
-		return c.Status(409).JSON(fiber.Map{"error": "Name already exists."})
-	}
-
-	userCount, err := bolt.CountBucketKV(bolt.DB, "users")
+	var ip string
+	var userCount int
+	var publicIP string
+	err = runDBOperation(func(db *bbolt.DB) error {
+		_, err := bolt.GetKV(db, "users", client.Name)
+		if err == nil {
+			return fmt.Errorf("Name already exists.")
+		}
+		userCount, err = bolt.CountBucketKV(db, "users")
+		if err != nil {
+			return err
+		}
+		ip = fmt.Sprintf("192.168.100.%d", userCount+1)
+		publicIP, err = bolt.GetKV(db, "metaDate", "public_ip")
+		if err != nil {
+			return err
+		}
+		err = bolt.PutKV(db, "users", client.Name, ip)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
 	if err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "failed to count users"})
-	}
-	ip := fmt.Sprintf("192.168.100.%d", userCount+1)
-
-	publicIP, err := getPublicIP()
-	if err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "failed to get public IP"})
+		if err.Error() == "Name already exists." {
+			return c.Status(409).JSON(fiber.Map{"error": "Name already exists."})
+		}
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	args := []string{
@@ -560,12 +566,6 @@ func handleInit(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": "failed to read client key"})
 	}
 
-	// 存储用户信息到users桶
-	err = bolt.PutKV(bolt.DB, "users", client.Name, ip)
-	if err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "failed to store user info"})
-	}
-
 	os.Remove(fmt.Sprintf("./%s.crt", client.Name))
 	os.Remove(fmt.Sprintf("./%s.key", client.Name))
 
@@ -592,7 +592,12 @@ func handleInit(c *fiber.Ctx) error {
 }
 
 func getPublicIP() (string, error) {
-	ip, err := bolt.GetKV(bolt.DB, "metaDate", "public_ip")
+	var ip string
+	err := runDBOperation(func(db *bbolt.DB) error {
+		var err error
+		ip, err = bolt.GetKV(db, "metaDate", "public_ip")
+		return err
+	})
 	if err != nil {
 		return "", err
 	}
@@ -600,7 +605,12 @@ func getPublicIP() (string, error) {
 }
 
 func getPassword() (string, error) {
-	password, err := bolt.GetKV(bolt.DB, "metaDate", "password")
+	var password string
+	err := runDBOperation(func(db *bbolt.DB) error {
+		var err error
+		password, err = bolt.GetKV(db, "metaDate", "password")
+		return err
+	})
 	if err != nil {
 		return "", err
 	}
@@ -783,8 +793,12 @@ func readPassword() (string, error) {
 }
 
 func handleCliList(c *fiber.Ctx) error {
-	// 获取所有用户数据
-	users, err := bolt.ScanAll(bolt.DB, "users")
+	var users map[string]string
+	err := runDBOperation(func(db *bbolt.DB) error {
+		var err error
+		users, err = bolt.ScanAll(db, "users")
+		return err
+	})
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "获取用户数据失败"})
 	}
@@ -793,51 +807,16 @@ func handleCliList(c *fiber.Ctx) error {
 }
 
 func handleList() {
-	// 尝试通过HTTP API获取用户列表
-	users, err := getUsersViaAPI()
-	if err != nil {
-		// 如果API调用失败，尝试直接打开数据库
-		fmt.Printf("API调用失败: %v，尝试直接访问数据库...\n", err)
-		handleListDirect()
-		return
-	}
-
-	displayAndManageUsers(users)
-}
-
-func getUsersViaAPI() (map[string]string, error) {
-	// 尝试连接到本地web服务
-	resp, err := http.Get("http://127.0.0.1:9090/cli/list")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("HTTP请求失败: %d", resp.StatusCode)
-	}
-
-	var result struct {
-		Users map[string]string `json:"users"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, err
-	}
-
-	return result.Users, nil
+	handleListDirect()
 }
 
 func handleListDirect() {
-	// 打开数据库连接
-	db, err := bolt.OpenDB("./config/data.db")
-	if err != nil {
-		fmt.Printf("打开数据库失败: %v\n", err)
-		os.Exit(1)
-	}
-	defer db.Close()
-
-	// 获取所有用户数据
-	users, err := bolt.ScanAll(db, "users")
+	var users map[string]string
+	err := runDBOperation(func(db *bbolt.DB) error {
+		var err error
+		users, err = bolt.ScanAll(db, "users")
+		return err
+	})
 	if err != nil {
 		fmt.Printf("获取用户数据失败: %v\n", err)
 		os.Exit(1)
@@ -879,13 +858,7 @@ func displayAndManageUsers(users map[string]string) {
 
 		choice := result.RadioList(deleteConfig)
 		if choice == "是" {
-			// 尝试通过API删除
-			if err := deleteUserViaAPI(username); err != nil {
-				fmt.Printf("API删除失败: %v，尝试直接删除...\n", err)
-				deleteUserDirect(username, ip)
-			} else {
-				fmt.Printf("用户 '%s' 已成功删除\n", username)
-			}
+			deleteUserDirect(username, ip)
 		} else {
 			fmt.Println("操作已取消")
 		}
@@ -897,78 +870,61 @@ func displayAndManageUsers(users map[string]string) {
 func handleCliDeleteUser(c *fiber.Ctx) error {
 	username := c.Params("username")
 
-	// 检查用户是否存在
-	_, err := bolt.GetKV(bolt.DB, "users", username)
+	err := runDBOperation(func(db *bbolt.DB) error {
+		_, err := bolt.GetKV(db, "users", username)
+		if err != nil {
+			return fmt.Errorf("用户不存在")
+		}
+
+		err = bolt.DeleteKV(db, "users", username)
+		if err != nil {
+			return fmt.Errorf("删除用户失败")
+		}
+
+		certFile := fmt.Sprintf("./config/%s.crt", username)
+		keyFile := fmt.Sprintf("./config/%s.key", username)
+
+		if err := os.Remove(certFile); err != nil && !os.IsNotExist(err) {
+			fmt.Printf("删除证书文件失败: %v\n", err)
+		}
+		if err := os.Remove(keyFile); err != nil && !os.IsNotExist(err) {
+			fmt.Printf("删除密钥文件失败: %v\n", err)
+		}
+
+		return nil
+	})
 	if err != nil {
-		return c.Status(404).JSON(fiber.Map{"error": "用户不存在"})
-	}
-
-	// 删除用户
-	err = bolt.DeleteKV(bolt.DB, "users", username)
-	if err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "删除用户失败"})
-	}
-
-	// 删除证书文件
-	certFile := fmt.Sprintf("./config/%s.crt", username)
-	keyFile := fmt.Sprintf("./config/%s.key", username)
-
-	if err := os.Remove(certFile); err != nil && !os.IsNotExist(err) {
-		fmt.Printf("删除证书文件失败: %v\n", err)
-	}
-	if err := os.Remove(keyFile); err != nil && !os.IsNotExist(err) {
-		fmt.Printf("删除密钥文件失败: %v\n", err)
+		if err.Error() == "用户不存在" {
+			return c.Status(404).JSON(fiber.Map{"error": "用户不存在"})
+		}
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}
 
 	return c.JSON(fiber.Map{"message": fmt.Sprintf("用户 '%s' 已删除", username)})
 }
 
-func deleteUserViaAPI(username string) error {
-	// 创建HTTP DELETE请求
-	req, err := http.NewRequest("DELETE", fmt.Sprintf("http://127.0.0.1:9090/cli/user/%s", username), nil)
-	if err != nil {
-		return err
-	}
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("HTTP请求失败: %d", resp.StatusCode)
-	}
-
-	return nil
-}
-
 func deleteUserDirect(username, ip string) {
-	// 打开数据库连接
-	db, err := bolt.OpenDB("./config/data.db")
-	if err != nil {
-		fmt.Printf("打开数据库失败: %v\n", err)
-		os.Exit(1)
-	}
-	defer db.Close()
+	err := runDBOperation(func(db *bbolt.DB) error {
+		err := bolt.DeleteKV(db, "users", username)
+		if err != nil {
+			return err
+		}
 
-	// 删除用户
-	err = bolt.DeleteKV(db, "users", username)
+		certFile := fmt.Sprintf("./config/%s.crt", username)
+		keyFile := fmt.Sprintf("./config/%s.key", username)
+
+		if err := os.Remove(certFile); err != nil && !os.IsNotExist(err) {
+			fmt.Printf("删除证书文件失败: %v\n", err)
+		}
+		if err := os.Remove(keyFile); err != nil && !os.IsNotExist(err) {
+			fmt.Printf("删除密钥文件失败: %v\n", err)
+		}
+
+		return nil
+	})
 	if err != nil {
 		fmt.Printf("删除用户失败: %v\n", err)
 		os.Exit(1)
-	}
-
-	// 删除证书文件
-	certFile := fmt.Sprintf("./config/%s.crt", username)
-	keyFile := fmt.Sprintf("./config/%s.key", username)
-
-	if err := os.Remove(certFile); err != nil && !os.IsNotExist(err) {
-		fmt.Printf("删除证书文件失败: %v\n", err)
-	}
-	if err := os.Remove(keyFile); err != nil && !os.IsNotExist(err) {
-		fmt.Printf("删除密钥文件失败: %v\n", err)
 	}
 
 	fmt.Printf("用户 '%s' 已成功删除\n", username)
